@@ -25,6 +25,13 @@ class ImagerySource:
     kind: str  # sentinel2 | drone
     path: Path | None = None  # local orthomosaic (drone)
     date: str | None = None
+    # Sentinel-2 via openEO
+    start: str | None = None  # ISO date; default <year>-04-15
+    end: str | None = None  # ISO date, exclusive; default <year>-09-15
+    indices: tuple[str, ...] | None = None
+    max_cloud_cover: float = 80.0
+    min_valid_share: float = 0.8  # drop dates where fewer cells are cloud-free
+    backend: str = "openeo.dataspace.copernicus.eu"
 
 
 @dataclass
@@ -52,6 +59,10 @@ class FieldYearConfig:
     slack: SlackSettings | None = None
 
     @property
+    def sentinel2(self) -> ImagerySource | None:
+        return next((i for i in self.imagery if i.kind == "sentinel2"), None)
+
+    @property
     def product_class(self) -> ProductClass:
         return classify_product(
             has_harvester=bool(self.harvest_logs),
@@ -68,6 +79,9 @@ class FieldYearConfig:
             problems.append("reference_moisture_pct must be in [0, 100)")
         if not self.harvest_logs and not self.imagery:
             problems.append("need at least one harvest log or imagery source")
+        for img in self.imagery:
+            if img.kind not in ("sentinel2", "drone"):
+                problems.append(f"unknown imagery kind {img.kind!r}")
         for log in self.harvest_logs:
             if log.machine_id not in self.machines:
                 problems.append(f"harvest log {log.path} uses unknown machine {log.machine_id!r}")
@@ -95,10 +109,16 @@ def load_config(path: str | Path) -> FieldYearConfig:
         )
         for h in raw.get("harvest_logs", [])
     ]
-    imagery = [
-        ImagerySource(kind=i["kind"], path=_path(base, i.get("path")), date=i.get("date"))
-        for i in raw.get("imagery", [])
-    ]
+    imagery = []
+    for i in raw.get("imagery", []):
+        i = dict(i)
+        i["path"] = _path(base, i.get("path"))
+        for key in ("date", "start", "end"):
+            if i.get(key) is not None:
+                i[key] = str(i[key])
+        if i.get("indices") is not None:
+            i["indices"] = tuple(i["indices"])
+        imagery.append(ImagerySource(**i))
     slack_raw = (raw.get("notify") or {}).get("slack")
     slack = (
         SlackSettings(**slack_raw)

@@ -27,7 +27,12 @@ harvest_logs:
 scale_tickets: data/demo-field-01/2026/scale_tickets.csv
 
 imagery:
-  - kind: sentinel2
+  - kind: sentinel2            # fetched via openEO from Copernicus Data Space
+    start: 2026-05-01
+    end: 2026-08-16            # exclusive
+    indices: [NDVI, NDRE, CIre, NDMI]
+    max_cloud_cover: 80        # scene pre-filter; pixels are masked with SCL
+    min_valid_share: 0.8       # drop dates where < 80 % of cells are cloud-free
   - kind: drone
     path: data/demo-field-01/2026/mavic3m_2026-07-02_reflectance.tif
     date: 2026-07-02

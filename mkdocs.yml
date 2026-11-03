@@ -15,5 +15,6 @@ nav:
   - Home: index.md
   - Architecture: architecture.md
   - Design – processing levels: design/processing-levels.md
+  - L5 Sentinel-2 fusion: l5-sentinel2.md
   - QGIS plugin: qgis.md
   - Slack: slack.md

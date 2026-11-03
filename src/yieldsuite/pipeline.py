@@ -36,11 +36,24 @@ class RunSummary:
     k_factors: dict[str, float] = field(default_factory=dict)
     mass_ok: bool | None = None
     viewer_url: str | None = None
+    notes: list[str] = field(default_factory=list)
     error: str | None = None
 
     @property
     def ok(self) -> bool:
         return self.error is None
+
+
+def _stage_l5(config: FieldYearConfig, state: dict) -> None:
+    """Sentinel-2 fusion on the L4 grid held in ``state`` (see ``yieldsuite fuse``)."""
+    if "l4" not in state:
+        raise RuntimeError(
+            "L5 needs an L4 yield grid; imagery-only relative maps are not built yet"
+        )
+    from .l5.run import run_sentinel2_fusion
+
+    result = run_sentinel2_fusion(config, state["l4"], state["grid"])
+    state["l5"] = result
 
 
 STAGES: list[Stage] = [
@@ -49,7 +62,7 @@ STAGES: list[Stage] = [
     Stage(Level.L2, "flow delay, antenna offset, record polygons, effective area, yield"),
     Stage(Level.L3, "load reconciliation per machine, quality flags"),
     Stage(Level.L4, "mass apportioning to the fixed grid, quality bands"),
-    Stage(Level.L5, "imagery fusion: shift, stripes, gap fill, zones"),
+    Stage(Level.L5, "Sentinel-2 fusion via openEO: image model, gap fill", _stage_l5),
 ]
 
 

@@ -1,0 +1,87 @@
+"""Run the Sentinel-2 L5 step for a field-year config: fetch (or reuse) features, fuse, write."""
+
+from __future__ import annotations
+
+import json
+from dataclasses import dataclass
+from pathlib import Path
+
+from ..config import FieldYearConfig
+from ..l4.grid import Grid
+from .fuse import FusionResult, fuse
+from .indices import DEFAULT_INDICES
+from .sentinel2 import S2Request, fetch_features, load_features, save_features
+
+
+@dataclass
+class L5Outputs:
+    result: FusionResult
+    raster: Path | None
+    model_card: Path
+    features: Path
+
+
+def s2_request(config: FieldYearConfig) -> S2Request:
+    src = config.sentinel2
+    if src is None:
+        raise ValueError("config has no imagery entry with kind: sentinel2")
+    return S2Request(
+        start=src.start or f"{config.year}-04-15",
+        end=src.end or f"{config.year}-09-15",
+        indices=tuple(src.indices or DEFAULT_INDICES),
+        max_cloud_cover=src.max_cloud_cover,
+        backend=src.backend,
+    )
+
+
+def run_sentinel2_fusion(
+    config: FieldYearConfig,
+    l4: dict,
+    grid: Grid,
+    features_path: str | Path | None = None,
+    out_dir: str | Path | None = None,
+    method: str = "linear",
+    residual: str = "kriging",
+    batch: bool = False,
+    connection=None,
+    write_raster: bool = True,
+) -> L5Outputs:
+    request = s2_request(config)
+    out = Path(out_dir or config.output_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    stem = f"L5_{config.field_id}_{config.year}"
+
+    features_path = Path(features_path) if features_path else out / f"{stem}_s2_features.csv"
+    if features_path.exists():
+        features = load_features(features_path)
+    else:
+        features = fetch_features(
+            grid, config.crs, request, connection=connection, workdir=out, batch=batch
+        )
+        save_features(features, features_path)
+
+    result = fuse(
+        l4,
+        grid,
+        features,
+        method=method,
+        residual=residual,
+        min_valid_share=config.sentinel2.min_valid_share,
+        request=request,
+    )
+    result.model_card.update(
+        field_id=config.field_id,
+        year=config.year,
+        crs=config.crs,
+        product_class=config.product_class.value,
+    )
+    card_path = out / f"{stem}_model_card.json"
+    card_path.write_text(json.dumps(result.model_card, indent=2, default=str))
+
+    raster = None
+    if write_raster:
+        from ..l4.io import write_cog
+        from ..schema import L5_BANDS
+
+        raster = write_cog(result.bands, grid, config.crs, out / f"{stem}.tif", names=L5_BANDS)
+    return L5Outputs(result, raster, card_path, features_path)

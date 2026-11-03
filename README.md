@@ -60,10 +60,19 @@ pytest
 
 Pre-alpha. Implemented and tested: moisture standardisation, flow-curve fitting
 from weighed loads, georeferencing and record polygons, effective area, load
-reconciliation, record filters, mass-conserving gridding, Slack notifier.
+reconciliation, record filters, mass-conserving gridding, Slack notifier, and
+the L5 Sentinel-2 step (openEO retrieval, yield-image model, regression-kriging
+gap fill; see [docs/l5-sentinel2.md](docs/l5-sentinel2.md)).
 Not yet: ingest adapters, delay neighbour pairs, local Moran's I, stage wiring
-in `pipeline.py`, L5 fusion. `yieldsuite run` reports the first unimplemented
-stage instead of producing a partial map.
+for L1–L4 in `pipeline.py`, the other L5 corrections. `yieldsuite run` reports
+the first unimplemented stage instead of producing a partial map.
+
+L5 can already run on an L4 raster made elsewhere:
+
+```bash
+pip install -e ".[geo,fusion]"
+yieldsuite fuse examples/field-2026.yaml --l4 my_L4.tif
+```
 
 ## Slack
 

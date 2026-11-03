@@ -49,6 +49,50 @@ def _cmd_run(args) -> int:
     return 0 if summary.ok else 2
 
 
+def _cmd_fuse(args) -> int:
+    from .l4.io import read_bands
+    from .l5.run import run_sentinel2_fusion
+    from .pipeline import RunSummary
+
+    cfg = load_config(args.config)
+    l4, grid, raster_crs = read_bands(args.l4)
+    if raster_crs and raster_crs.upper() != cfg.crs.upper():
+        print(f"warning: L4 raster CRS {raster_crs} differs from config {cfg.crs}", file=sys.stderr)
+    summary = RunSummary(cfg.field_id, cfg.year, Level.L5, cfg.product_class)
+    try:
+        outputs = run_sentinel2_fusion(
+            cfg,
+            l4,
+            grid,
+            features_path=args.features,
+            out_dir=args.out,
+            method=args.method,
+            residual=args.residual,
+            batch=args.batch,
+        )
+    except Exception as exc:  # noqa: BLE001 - reported to the user and to Slack
+        summary.error = f"L5 failed: {exc}"
+    else:
+        card = outputs.result.model_card
+        fit, cells = card["fit"], card["cells"]
+        summary.completed.append(Level.L5)
+        summary.notes = [
+            f"{len(card['sentinel2']['dates_used'])} clear S2 dates",
+            f"R² {fit['r2']:.2f}",
+            f"CV RMSE {fit.get('cv_rmse', float('nan')):.2f} t/ha",
+            f"filled {100 * cells['filled_share']:.0f}% of cells",
+        ]
+        print(f"wrote {outputs.raster}\n      {outputs.model_card}")
+        print(" · ".join(summary.notes))
+    if summary.error:
+        print(f"error: {summary.error}", file=sys.stderr)
+    if args.notify == "slack":
+        from .notify.slack import SlackNotifier
+
+        SlackNotifier(cfg.slack or SlackSettings()).notify_run(summary)
+    return 0 if summary.ok else 2
+
+
 def _cmd_notify_test(args) -> int:
     from .notify.slack import SlackNotifier
 
@@ -80,6 +124,17 @@ def build_parser() -> argparse.ArgumentParser:
         if name == "run":
             s.add_argument("--notify", choices=["slack"], help="post a run summary")
         s.set_defaults(func=func)
+
+    f = sub.add_parser("fuse", help="L4 -> L5: Sentinel-2 fusion via openEO")
+    f.add_argument("config")
+    f.add_argument("--l4", required=True, help="L4 GeoTIFF (band 'yield', optionally 'coverage')")
+    f.add_argument("--features", help="cached feature CSV; fetched from openEO if missing")
+    f.add_argument("--out", help="output directory (default: output_dir from config)")
+    f.add_argument("--method", choices=["linear", "rf"], default="linear")
+    f.add_argument("--residual", choices=["kriging", "none"], default="kriging")
+    f.add_argument("--batch", action="store_true", help="run as an openEO batch job")
+    f.add_argument("--notify", choices=["slack"], help="post a run summary")
+    f.set_defaults(func=_cmd_fuse)
 
     n = sub.add_parser("notify-test", help="post a test message to Slack")
     n.add_argument("config", nargs="?")
