@@ -46,7 +46,7 @@ def write_cog(
     return path
 
 
-def read_bands(path: str | Path) -> tuple[dict, Grid, str]:
+def read_bands(path: str | Path, require_yield: bool = True) -> tuple[dict, Grid, str]:
     """Read a yield raster. Bands are named by their descriptions.
 
     A single-band raster without descriptions is read as ``yield``; when there
@@ -63,6 +63,8 @@ def read_bands(path: str | Path) -> tuple[dict, Grid, str]:
         crs = src.crs.to_string() if src.crs else ""
     bands = dict(zip(names, data, strict=True))
     if "yield" not in bands:
-        raise ValueError(f"{path}: no band described as 'yield' (found {names})")
+        if require_yield:
+            raise ValueError(f"{path}: no band described as 'yield' (found {names})")
+        return bands, grid, crs
     bands.setdefault("coverage", np.isfinite(bands["yield"]).astype(float))
     return bands, grid, crs

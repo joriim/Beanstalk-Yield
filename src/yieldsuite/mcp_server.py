@@ -127,6 +127,40 @@ def build_server(store: FarmStore, actor: str | None = None):
         result.pop("config_yaml", None)
         return result
 
+    public = ToolAnnotations(
+        readOnlyHint=False, destructiveHint=False, idempotentHint=True, openWorldHint=True
+    )
+
+    @server.tool(annotations=public)
+    def get_weather(farm: str, field: str, year: int, refresh: bool = False) -> dict:
+        """Field weather and agroclimate for a season: ERA5 (via Open-Meteo) cached in the
+        store, with PAR (all-sky, i.e. cloud-aware), clearness index, growing degree days,
+        stage dates, precipitation, ET0, water balance, heat and frost days, and field RUE
+        when L5 exists. Sends only a rounded location (~5 km) to the weather service."""
+        from .l4.io import read_bands
+        from .weather.run import run_agroclimate, write_agroclimate
+
+        cfg = guard(store.load_config, farm, field, year)
+        grid = None
+        l4 = store.year_dir(farm, field, year) / "output" / f"L4_{field}_{year}.tif"
+        if l4.exists():
+            grid = read_bands(l4)[1]
+        try:
+            result = run_agroclimate(cfg, grid, refresh=refresh)
+        except (ValueError, OSError) as exc:
+            raise ToolError(f"weather not available: {exc}") from exc
+        files = write_agroclimate(cfg, result, grid)
+        store._audit(
+            actor,
+            "get_weather",
+            f"{farm}/{field}/{year}",
+            source=result["summary"].get("weather_source"),
+        )
+        return {
+            "summary": result["summary"],
+            "products": [f"{farm}/{field}/{year}/{Path(p).name}" for p in files.values()],
+        }
+
     # --- write ---------------------------------------------------------------------
 
     @server.tool(annotations=write)

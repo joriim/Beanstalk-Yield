@@ -33,7 +33,8 @@ Every product carries its class, so a relative map is never mistaken for an abso
 
 ```
 src/yieldsuite/   core library (headless, pip-installable)
-  ingest/         vendor + ISOXML adapters → common record schema
+  ingest/         format/column/unit detection, readers incl. ISOXML
+  weather/        ERA5 via Open-Meteo, PAR, GDD, RUE
   l1/ … l5/       one package per processing level
   registry.py     versioned machine profiles (delays, offsets, curves, k factors)
   catalog.py      STAC product metadata
@@ -60,7 +61,16 @@ pytest
 
 ## Status
 
-Pre-alpha. Working end to end on vendor CSV exports:
+Pre-alpha. Working end to end:
+
+- **Ingest** of almost any yield/machine file: CSV/TXT (incl. Nordic `;` and
+  decimal comma), Excel, Shapefile/GeoPackage/GeoJSON, ISOXML TaskData
+  (experimental), Ag Leader advanced; columns and units recognised and
+  reported (`yieldsuite inspect FILE`), mass-flow logs and yield-point
+  exports both supported ([docs/harvester-chain.md](docs/harvester-chain.md)).
+- **Field weather and agroclimate** ([docs/weather-agroclimate.md](docs/weather-agroclimate.md)):
+  ERA5 via Open-Meteo, cloud-aware PAR, clearness index, growing degree days,
+  stage dates, water balance, and a per-cell radiation-use-efficiency map.
 
 - **L1A–L4** ([docs/harvester-chain.md](docs/harvester-chain.md)): flow-delay
   shift, antenna offset, moisture standardisation, effective area, quality
@@ -74,7 +84,7 @@ Pre-alpha. Working end to end on vendor CSV exports:
   yield-image model, regression-kriging gap fill. Not yet run against the live
   backend.
 
-Not yet: ISOXML and raw-force (L0) input, delay estimation from opposite
+Not yet: raw-force (L0) input, validation of ISOXML on real terminal files, delay estimation from opposite
 passes, local Moran's I, field-boundary edge flag, the other L5 corrections
 (position shift, stripes, zones), public-data tools in the MCP server,
 WebODM, the QGIS algorithm wiring, the PostGIS/pgSTAC server.

@@ -74,6 +74,27 @@ class SlackSettings:
 
 
 @dataclass
+class CropSettings:
+    name: str = "spring_cereal"
+    sowing_date: str | None = None  # ISO date
+    harvest_date: str | None = None  # ISO date; default: last harvesting record
+    t_base_c: float = 5.0
+    t_cap_c: float | None = None
+    harvest_index: float = 0.45
+    par_fraction: float = 0.48
+    stages_gdd: dict[str, float] = field(default_factory=dict)  # e.g. {heading: 700}
+    ptq_window: list[str] | None = None  # two stage names
+
+
+@dataclass
+class WeatherConfig:
+    source: str = "open-meteo"
+    model: str = "era5_seamless"  # era5 | era5_land | era5_seamless | best_match
+    hourly: list[str] = field(default_factory=list)  # e.g. soil_moisture_0_to_7cm
+    round_deg: float = 0.05  # location sent to the API is rounded to this
+
+
+@dataclass
 class FieldYearConfig:
     field_id: str
     year: int
@@ -88,6 +109,9 @@ class FieldYearConfig:
     machines: dict[str, MachineProfile] = field(default_factory=dict)
     output_dir: Path = Path("output")
     slack: SlackSettings | None = None
+    crop: CropSettings | None = None
+    location: tuple[float, float] | None = None  # (lat, lon) WGS84; else from the grid
+    weather: WeatherConfig = field(default_factory=WeatherConfig)
 
     @property
     def sentinel2(self) -> ImagerySource | None:
@@ -154,6 +178,18 @@ def load_config(path: str | Path) -> FieldYearConfig:
         else (SlackSettings() if slack_raw else None)
     )
     grid = raw.get("grid", {})
+    crop = None
+    if raw.get("crop"):
+        c = dict(raw["crop"])
+        for key in ("sowing_date", "harvest_date"):
+            if c.get(key) is not None:
+                c[key] = str(c[key])
+        crop = CropSettings(**c)
+    loc = raw.get("location")
+    if isinstance(loc, dict):
+        loc = (float(loc["lat"]), float(loc["lon"]))
+    elif loc is not None:
+        loc = (float(loc[0]), float(loc[1]))
     return FieldYearConfig(
         field_id=str(raw["field_id"]),
         year=int(raw["year"]),
@@ -168,4 +204,7 @@ def load_config(path: str | Path) -> FieldYearConfig:
         machines=machines,
         output_dir=_path(base, raw.get("output_dir", "output")),
         slack=slack,
+        crop=crop,
+        location=loc,
+        weather=WeatherConfig(**(raw.get("weather") or {})),
     )

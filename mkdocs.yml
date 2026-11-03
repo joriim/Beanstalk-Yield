@@ -17,6 +17,7 @@ nav:
   - Design – processing levels: design/processing-levels.md
   - Harvester chain L1A–L4: harvester-chain.md
   - L5 Sentinel-2 fusion: l5-sentinel2.md
+  - Weather and agroclimate: weather-agroclimate.md
   - QGIS plugin: qgis.md
   - Ohje – työnkulku ja MCP: ohje/tyonkulku-qgis-webodm-openeo-mcp.md
   - Slack: slack.md

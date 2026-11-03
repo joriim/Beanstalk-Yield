@@ -37,6 +37,19 @@ imagery:
     path: data/demo-field-01/2026/mavic3m_2026-07-02_reflectance.tif
     date: 2026-07-02
 
+# Crop calendar: enables season weather (ERA5), GDD stages and the RUE map at L5
+crop:
+  name: spring_wheat
+  sowing_date: 2026-05-12
+  harvest_date: 2026-08-28
+  t_base_c: 5
+  harvest_index: 0.45
+  stages_gdd: {heading: 700, yellow_ripe: 1100}   # set for your crop/variety
+  ptq_window: [heading, yellow_ripe]
+location: {lat: 62.79, lon: 22.84}   # optional; otherwise the centre of the L4 grid
+weather:
+  model: era5_seamless
+
 output_dir: output/demo-field-01/2026
 
 notify:

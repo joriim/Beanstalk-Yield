@@ -4,12 +4,14 @@ Tämä ohje kertoo, mitä työkalua käytetään missäkin prosessointitason vai
 (L0–L5 + lohkot), ja kuvaa MCP-palvelimen, jonka kautta maatilan
 datavarastoa luetaan ja päivitetään sekä julkisia aineistoja haetaan.
 
-> **Tila (marraskuu 2026).** Toteutettu: ydinkirjasto L1A–L4 (CSV-vienti),
-> L5 Sentinel-2 openEO:n kautta, komentorivi, Slack-ilmoitukset,
-> tiladata-MCP:n datavarastotyökalut ja `run_chain` (luku 3).
-> Ei vielä toteutettu: MCP:n julkiset haut, WebODM-integraatio,
-> QGIS-algoritmien kytkentä, ISOXML-luku. Ne on merkitty alla tunnuksella
-> **[suunnitelma]**.
+> **Tila (marraskuu 2026).** Toteutettu: ydinkirjasto L1A–L4, monimuotoinen
+> sato- ja konedatan tuonti (CSV/TXT, Excel, Shapefile/GeoPackage/GeoJSON,
+> ISOXML kokeellisena, Ag Leader), L5 Sentinel-2 openEO:n kautta,
+> lohkokohtainen sää ja agroklimaatti (ERA5 Open-Meteon kautta: PAR, RUE,
+> lämpösumma), komentorivi, Slack-ilmoitukset ja tiladata-MCP (luku 3).
+> Ei vielä toteutettu: muut julkiset haut (Sentinel-2-haku, peltolohkot,
+> korkeus, maaperä), WebODM-integraatio, QGIS-algoritmien kytkentä. Ne on
+> merkitty alla tunnuksella **[suunnitelma]**.
 
 ## 1. Roolijako yhdellä silmäyksellä
 
@@ -19,7 +21,8 @@ datavarastoa luetaan ja päivitetään sekä julkisia aineistoja haetaan.
 | **QGIS** | Katselu, tarkastus, ihmisen päätökset (viive, liput, hyväksyntä), lohkojen viimeistely | Laskentaa ei tehdä käsin QGISissä, ettei tulos riipu klikkauksista |
 | **WebODM** | Drone-kuvista heijastusortokuva (Mavic 3M), DSM | Satodatan käsittely |
 | **openEO** (Copernicus Data Space) | Sentinel-2-aikasarjat palvelimella: pilvimaski, indeksit, keskiarvo ruuduittain | Satodata ei koskaan lähde openEO:hon |
-| **Tiladata-MCP** **[suunnitelma]** | Yksi rajapinta datavarastoon ja julkisiin hakuihin agenteille ja työkaluille | Ei laske itse; kutsuu ydintä |
+| **ERA5 / Open-Meteo** | Lohkon päivittäinen sää: lämpötila, pilvet huomioiva säteily, sade, ET0 | Palveluun lähtee vain pyöristetty sijainti (~5 km) |
+| **Tiladata-MCP** | Yksi rajapinta datavarastoon ja julkisiin hakuihin agenteille ja työkaluille | Ei laske itse; kutsuu ydintä |
 | **Slack** (#yield-data-suite) | Ajojen tila, QA-yhteenveto, hyväksyntäpyynnöt | Karttatiedostot eivät mene Slackiin |
 
 Periaate: **laskenta yhdessä paikassa, ihmisen päätökset tallennetaan
@@ -40,6 +43,27 @@ muokata käsin.
 | Julkinen data | Peltolohkon raja (Ruokavirasto, peltolohkorekisteri) → `boundary`. MCP: `get_parcel` **[suunnitelma]**; nyt: `upload_raw` kind `boundary` |
 
 Tarkistuslista: kuvien ja lokien tarkistussumma, koneen tunnus, sadonkorjuupäivä.
+
+**Sato- ja konedatan tuonti – mikä tahansa vientitiedosto**
+
+1. Tarkista tiedosto: `yieldsuite inspect vienti.csv` (tai MCP: `inspect_harvest_file`).
+   Tuetut muodot: CSV/TXT/TSV (myös suomalainen `;` ja desimaalipilkku),
+   Excel, Shapefile/GeoPackage/GeoJSON (myös zip), ISOXML TaskData
+   (kansio, TASKDATA.XML tai zip; kokeellinen), Ag Leader advanced -teksti.
+2. Raportti kertoo jokaisesta sarakkeesta, mihin se tunnistettiin
+   (suomeksi, englanniksi, saksaksi ja valmistajien kenttänimillä), mikä
+   yksikkö ja **mistä yksikkö pääteltiin** (asetus, tiedostomuoto,
+   sarakeotsikko, vertailu GNSS-paikkoihin tai arvoalue). Arvatuista
+   yksiköistä tulee varoitus. Epäselvissä tapauksissa (esim. bu/ac ilman
+   kasvia) ohjelma pysähtyy eikä arvaa.
+3. Satopistevienneistä (sato pinta-alaa kohden, tyypillinen
+   viljelysuunnitteluohjelmien shapefile-vienti) massa rakennetaan
+   uudelleen: sato × matka × leikkuuleveys. Näin nekin täsmäytetään
+   vaakalappuihin. Ne tulevat tasolla L2, koska valmistaja on jo korjannut
+   viiveen.
+4. Hyväksy tulos: liitä tulostettu `harvest_logs`-lohko `field.yaml`-tiedostoon
+   tai käytä MCP-työkalua `register_harvest_log`, joka myös tallentaa
+   tiedoston L0:ksi.
 
 ### L1A–L1B – Purku ja massavirta
 
@@ -96,12 +120,29 @@ Tarkistuslista: kuvien ja lokien tarkistussumma, koneen tunnus, sadonkorjuupäiv
 4. **Yhdenmukaistus Sentinel-2:een:** ortokuva aggregoidaan samaan 20 m ruudukkoon pinta-alapainotetulla keskiarvolla, ja kanavakohtainen lineaarinen sovitus tehdään samanaikaiseen Sentinel-2-kuvaan. Kaistavastaavuus: G 560 → B03, R 650 → B04, NIR 860 → B8A. RE 730 on B05:n (705) ja B06:n (740) välissä, joten red edge -indeksit eivät ole suoraan vertailukelpoisia ilman sovitusta.
 5. **Käyttö:** drone-indeksit lisäpiirteiksi samaan malliin; 20 m ruudukossa lisäarvo on lähinnä pilvisen kauden paikkaamisessa ja ajankohdan tarkkuudessa. Tarkempi (esim. 5 m) drone-ruudukko vaatii erillisen L4-ajon pienemmällä solukoolla.
 
+### Sää ja agroklimaatti (ERA5) – toteutettu
+
+| Mitä | Miten |
+|---|---|
+| Haku | `yieldsuite weather lohko.yaml` tai MCP `get_weather`. ERA5 / ERA5-Land Open-Meteon arkistorajapinnasta, välimuistiin `public/era5_daily.csv` alkuperätietoineen |
+| PAR (pilvet huomioiva) | 0,48 × kokonaissäteily. ERA5:n säteily sisältää pilvet; kirkkausindeksi kt = säteily / ilmakehän ulkopuolinen säteily näyttää, kuinka pilvinen kukin päivä oli (kt < 0,3 pilvinen, > 0,6 selkeä) |
+| Lämpösumma | Tehoisa lämpösumma kynnyksellä 5 °C kylvöstä alkaen; kasvuvaiheiden päivät omista kynnyksistä (`stages_gdd`, kasvi- ja lajikekohtaiset) |
+| Muut | Sade, ET0, vesitase (sade − ET0), hellepäivät (> 30 °C), hallapäivät, fototerminen osamäärä (PTQ) valitulla jaksolla; valinnaisesti maan kosteus ja VPD tunneittaisista arvoista |
+| Säteilyn käytön tehokkuus (RUE) | Kun L5 ja kylvöpäivä ovat tiedossa: fAPAR Sentinel-2:n NDVI:stä, IPAR = Σ PAR × fAPAR, RUE = kuiva biomassa / IPAR (g/MJ). Tuloksena lohkon RUE ja **solukohtainen RUE-kartta** (`L5_..._rue.tif`) |
+| QGIS | Avaa `L5_..._rue.tif`. Matala RUE kohdassa, jossa kasvusto sitoi valoa mutta ei tuottanut satoa → kuivuus, tauti, lako tai typpi. Vertaa sato- ja RUE-karttaa rinnakkain |
+| Rajoitukset | Sää on yksi arvo lohkolle päivässä: se selittää vuoden, ei lohkon sisäistä vaihtelua. Korjuuindeksi (oletus 0,45) on oletus ja skaalaa RUE:n suoraan: vertaa RUE:ta saman kasvin ja vuoden sisällä. Pilvien alla ERA5:n säteily on karkea; satelliittipohjainen CM SAF SARAH-3 on suunniteltu toiseksi PAR-lähteeksi **[suunnitelma]** |
+
+Asetukset `field.yaml`-tiedostossa: `crop:` (nimi, kylvö- ja korjuupäivä,
+kynnyslämpötila, korjuuindeksi, kasvuvaiheiden lämpösummat), valinnainen
+`location:` ja `weather:` (malli, tunneittaiset lisämuuttujat). Ks.
+`docs/weather-agroclimate.md`.
+
 ### Lohkot (monivuotinen) – [suunnitelma]
 
 | Mitä | Miten |
 |---|---|
 | Laskenta | Usean vuoden L5-kartat suhteelliseksi sadoksi, pinottuna kuvahistorian, korkeusmallin ja maaperätiedon kanssa → KM-sPC-klusterointi |
-| Julkinen data | Maanmittauslaitoksen korkeusmalli 2 m (rinne, kosteusindeksi), GTK:n maaperäkartta, Ilmatieteen laitoksen säädata (lämpösumma, sademäärä vuosien vertailuun). MCP: `get_elevation`, `get_soil_map`, `get_weather` |
+| Julkinen data | Maanmittauslaitoksen korkeusmalli 2 m (rinne, kosteusindeksi), GTK:n maaperäkartta. Vuosien vertailuun ERA5-sääyhteenvedot (lämpösumma, PAR, vesitase, RUE): MCP `get_weather` (toteutettu). `get_elevation`, `get_soil_map` **[suunnitelma]** |
 | QGIS | Lohkorajojen viimeistely ja yhdistely, levityskarttojen pohja |
 
 ## 3. Tiladata-MCP-palvelin
@@ -189,6 +230,7 @@ aja uudelleen"*, *"Hyväksy QA, kerroin on vaakalappujen mukainen."*
 | `get_product(product_id)` | Polku/URL, kaistat, QA-yhteenveto tai mallikortti |
 | `get_qa(farm, field, year)` | QA-raportti: k, liput, massan säilyminen, varoitukset, L5-mallikortti, hyväksynnät |
 | `get_machine_profile(farm, machine_id, version?)` | Viiveet, offsetit, kalibrointi; versiohistoria |
+| `inspect_harvest_file(path, crs?, options?)` | Tunnistettu muoto, sarakkeet, yksiköt ja niiden lähde, varoitukset, valmis konfiguraatiorivi |
 
 **Datavarasto – päivitys** (toteutettu; vaatii vahvistuksen, kirjataan auditlokiin)
 
@@ -199,25 +241,28 @@ aja uudelleen"*, *"Hyväksy QA, kerroin on vaakalappujen mukainen."*
 | `update_machine_profile(farm, machine_id, changes, reason)` | Luo **uuden version**, ei ylikirjoita |
 | `run_chain(farm, field, year, to_level, notify_slack)` | Ajaa ytimen, palauttaa yhteenvedon ja tuotetunnukset, valinnaisesti Slackiin |
 | `approve_qa(farm, field, year, decision, note)` | Kirjaa ihmisen hyväksynnän |
+| `register_harvest_log(farm, field, year, source_path, options?)` | Tarkistaa tiedoston, tallentaa sen L0:ksi ja lisää sen lohkovuoden asetuksiin tunnistetuin sarakkein ja yksiköin |
 
-**Julkiset haut** **[suunnitelma]** (vain luku, tulokset välimuistiin alkuperätietoineen)
+**Julkiset haut** (tulokset välimuistiin alkuperätietoineen)
 
 | Työkalu | Lähde | Käyttö |
 |---|---|---|
-| `search_sentinel2(field_id, start, end, max_cloud)` | Copernicus Data Space STAC | Pilvettömät päivät ennen openEO-ajoa |
+| `get_weather(farm, field, year, refresh?)` **(toteutettu)** | ERA5 / ERA5-Land, Open-Meteo-arkisto | PAR, kirkkausindeksi, lämpösumma, kasvuvaiheet, vesitase, RUE |
+| `search_sentinel2(field_id, start, end, max_cloud)` **[suunnitelma]** | Copernicus Data Space STAC | Pilvettömät päivät ennen openEO-ajoa |
 | `fetch_s2_features(field_id, year)` | openEO (toteutettu ytimessä) | L5-piirteet |
-| `get_parcel(parcel_id \| bbox)` | Ruokavirasto, peltolohkorekisteri (avoin data, WFS) | Lohkorajat |
-| `get_elevation(field_id)` | Maanmittauslaitos, korkeusmalli 2 m (avoin, API-avain) | Lohkot, maaston kovariaatit |
-| `get_soil_map(field_id)` | GTK, maaperäkartta | Lohkot |
-| `get_weather(field_id, start, end)` | Ilmatieteen laitos, avoin data | Lämpösumma, sade, ajoitus |
-| `webodm_create_task`, `webodm_task_status`, `import_orthomosaic` | Oma WebODM-instanssi | Drone-ortokuvat |
+| `get_parcel(parcel_id \| bbox)` **[suunnitelma]** | Ruokavirasto, peltolohkorekisteri (avoin data, WFS) | Lohkorajat |
+| `get_elevation(field_id)` **[suunnitelma]** | Maanmittauslaitos, korkeusmalli 2 m (avoin, API-avain) | Lohkot, maaston kovariaatit |
+| `get_soil_map(field_id)` **[suunnitelma]** | GTK, maaperäkartta | Lohkot |
+| `get_station_weather(field_id)` **[suunnitelma]** | Ilmatieteen laitos, avoin data | Lähiaseman havainnot ERA5:n tarkistukseen |
+| `get_satellite_radiation(field_id)` **[suunnitelma]** | CM SAF SARAH-3 | Tarkempi pilvet huomioiva PAR |
+| `webodm_create_task`, `webodm_task_status`, `import_orthomosaic` **[suunnitelma]** | Oma WebODM-instanssi | Drone-ortokuvat |
 
 Rajapintojen osoitteet, käyttöehdot ja avainten tarve tarkistetaan
 toteutusvaiheessa; ne muuttuvat useammin kuin tämä ohje.
 
 ### Säännöt
 
-1. **Tilan data kuuluu viljelijälle.** Jokainen kutsu on rajattu tilaan, jolle käyttäjällä on oikeus. Satodataa ei lähetetä julkisiin palveluihin; openEO:lle menee vain ruudukko.
+1. **Tilan data kuuluu viljelijälle.** Jokainen kutsu on rajattu tilaan, jolle käyttäjällä on oikeus. Satodataa ei lähetetä julkisiin palveluihin; openEO:lle menee vain ruudukko ja säähakuun vain noin 5 km:iin pyöristetty sijainti.
 2. **L0 on muuttumaton.** Päivitystyökalut lisäävät tai versioivat, eivät poista.
 3. **Ihmisen päätös on parametri.** Viive, k ja hyväksynnät tallentuvat versioituina, ja jokainen tuote kertoo, millä versiolla se on tehty.
 4. **Kirjoittavat työkalut vaativat vahvistuksen** ja kirjataan auditlokiin (kuka, milloin, miksi).
@@ -228,7 +273,9 @@ toteutusvaiheessa; ne muuttuvat useammin kuin tämä ohje.
 
 1. ~~MCP:n lukutyökalut paikallista kansiovarastoa vasten~~ – tehty.
 2. ~~`run_chain` + Slack-yhteenveto + `update_machine_profile`~~ – tehty.
-3. `search_sentinel2` ja `get_parcel`.
-4. WebODM-työkalut ja drone-yhdenmukaistus L5:een.
-5. MML-, GTK- ja IL-haut lohkojaon tueksi.
-6. QGIS-lisäosan algoritmit kutsumaan samaa ydintä (ja tarvittaessa MCP:tä).
+3. ~~Monimuotoinen sato- ja konedatan tuonti, `inspect_harvest_file`, `register_harvest_log`~~ – tehty.
+4. ~~Lohkokohtainen sää (ERA5), PAR, lämpösumma, RUE, `get_weather`~~ – tehty.
+5. `search_sentinel2` ja `get_parcel`.
+6. WebODM-työkalut ja drone-yhdenmukaistus L5:een.
+7. MML-, GTK- ja IL-asemahaut sekä SARAH-3-säteily.
+8. QGIS-lisäosan algoritmit kutsumaan samaa ydintä (ja tarvittaessa MCP:tä).

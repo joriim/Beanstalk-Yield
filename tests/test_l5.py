@@ -17,7 +17,7 @@ GRID = Grid(xmin=400_000.0, ymax=6_950_000.0, resolution=20.0, nx=30, ny=30)
 CRS = "EPSG:3067"
 
 
-def synthetic_field(seed=0):
+def synthetic_field(seed=0):  # noqa: D401 - also used by test_weather
     """NDVI pattern + smooth residual -> yield. Returns (l4 bands, long features, truth)."""
     rng = np.random.default_rng(seed)
     rows, cols, xy = cell_centres(GRID)

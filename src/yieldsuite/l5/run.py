@@ -78,6 +78,19 @@ def run_sentinel2_fusion(
     card_path = out / f"{stem}_model_card.json"
     card_path.write_text(json.dumps(result.model_card, indent=2, default=str))
 
+    # Agroclimate and RUE: only when the crop calendar is known; a weather
+    # failure (e.g. no network) is reported, not fatal for L5.
+    if config.crop is not None and config.crop.sowing_date:
+        try:
+            from ..weather.run import run_agroclimate, write_agroclimate
+
+            agro = run_agroclimate(config, grid, l5_bands=result.bands, features_long=features)
+            result.model_card["agroclimate"] = agro["summary"]
+            result.model_card["agroclimate_files"] = write_agroclimate(config, agro, grid)
+        except Exception as exc:  # noqa: BLE001
+            result.model_card["agroclimate_error"] = str(exc)
+        card_path.write_text(json.dumps(result.model_card, indent=2, default=str))
+
     raster = None
     if write_raster:
         from ..l4.io import write_cog

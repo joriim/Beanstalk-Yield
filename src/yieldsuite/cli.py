@@ -152,6 +152,25 @@ def _cmd_inspect(args) -> int:
     return 0
 
 
+def _cmd_weather(args) -> int:
+    import json
+
+    from .l4.io import read_bands
+    from .weather.run import run_agroclimate, write_agroclimate
+
+    cfg = load_config(args.config)
+    grid = read_bands(args.l4)[1] if args.l4 else None
+    try:
+        result = run_agroclimate(cfg, grid, refresh=args.refresh)
+    except Exception as exc:  # noqa: BLE001
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    files = write_agroclimate(cfg, result, grid)
+    print(json.dumps(result["summary"], indent=2, default=str))
+    print(f"wrote {files['agroclimate']} (weather cache {result['weather_file']})")
+    return 0
+
+
 def _cmd_notify_test(args) -> int:
     from .notify.slack import SlackNotifier
 
@@ -215,6 +234,12 @@ def build_parser() -> argparse.ArgumentParser:
     i.add_argument("--unit", action="append", help="confirm a unit, e.g. --unit speed=mph")
     i.add_argument("--column", action="append", help="map a column, e.g. --column yield_dry=Sato")
     i.set_defaults(func=_cmd_inspect)
+
+    w = sub.add_parser("weather", help="field weather (ERA5 via Open-Meteo) and agroclimate")
+    w.add_argument("config")
+    w.add_argument("--l4", help="L4 raster to locate the field when config has no location")
+    w.add_argument("--refresh", action="store_true", help="fetch again even if cached")
+    w.set_defaults(func=_cmd_weather)
 
     m = sub.add_parser("mcp", help="run the farm-data MCP server (stdio)")
     m.add_argument("--store", help="data store root (default: $YIELDSUITE_STORE)")
