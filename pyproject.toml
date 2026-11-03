@@ -1,0 +1,70 @@
+[build-system]
+requires = ["hatchling>=1.24"]
+build-backend = "hatchling.build"
+
+[project]
+name = "yieldsuite"
+dynamic = ["version"]
+description = "Open processing chain (L0-L5) for harvester yield maps fused with drone and satellite data"
+readme = "README.md"
+license = "Apache-2.0"
+requires-python = ">=3.10"
+authors = [{ name = "Yield Data Suite contributors" }]
+keywords = ["precision agriculture", "yield monitor", "yield map", "Sentinel-2", "ISOXML", "GIS"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "License :: OSI Approved :: Apache Software License",
+  "Topic :: Scientific/Engineering :: GIS",
+  "Development Status :: 2 - Pre-Alpha",
+]
+dependencies = [
+  "numpy>=1.24",
+  "pandas>=2.0",
+  "shapely>=2.0",
+  "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+# Geodata I/O: GeoParquet (L1-L3), Cloud-Optimised GeoTIFF (L4-L5), CRS transforms
+geo = ["geopandas>=0.14", "pyproj>=3.6", "pyarrow>=14", "rasterio>=1.3", "rioxarray>=0.15"]
+# Vendor / ISO 11783 ingest
+ingest = ["isoxml>=1.0"]
+# L3 spatial statistics (local Moran's I)
+qa = ["esda>=2.5", "libpysal>=4.9"]
+# L5 fusion: imagery access, yield-image models, kriging, mixed models
+fusion = [
+  "pystac-client>=0.7",
+  "openeo>=0.28",
+  "scikit-learn>=1.3",
+  "statsmodels>=0.14",
+  "gstools>=1.5",
+]
+# Slack bot-token notifications (webhooks need no extra dependency)
+slack = ["slack_sdk>=3.27"]
+docs = ["mkdocs-material>=9.5"]
+dev = ["pytest>=8", "pytest-cov>=5", "ruff>=0.6"]
+all = ["yieldsuite[geo,ingest,qa,fusion,slack]"]
+
+[project.scripts]
+yieldsuite = "yieldsuite.cli:main"
+
+[project.urls]
+Repository = "https://github.com/joriim/Yield-Data-Suite"
+
+[tool.hatch.version]
+path = "src/yieldsuite/__init__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/yieldsuite"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+extend-exclude = ["qgis_plugin"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "NPY"]

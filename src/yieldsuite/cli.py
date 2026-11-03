@@ -1,0 +1,96 @@
+"""Command-line tool: ``yieldsuite``."""
+
+from __future__ import annotations
+
+import argparse
+import sys
+
+from . import __version__
+from .config import SlackSettings, load_config
+from .levels import Level
+from .pipeline import plan, run
+
+
+def _cmd_validate(args) -> int:
+    cfg = load_config(args.config)
+    problems = cfg.validate()
+    for p in problems:
+        print(f"error: {p}", file=sys.stderr)
+    if not problems:
+        print(f"{cfg.field_id}/{cfg.year}: OK, product class {cfg.product_class.value}")
+    return 1 if problems else 0
+
+
+def _cmd_plan(args) -> int:
+    cfg = load_config(args.config)
+    print(f"{cfg.field_id}/{cfg.year} · product class {cfg.product_class.value}")
+    for stage in plan(cfg, Level.parse(args.to), Level.parse(args.start)):
+        status = "ready" if stage.implemented else "not implemented"
+        print(f"  {stage.target.value:4} {stage.description}  [{status}]")
+    return 0
+
+
+def _cmd_run(args) -> int:
+    cfg = load_config(args.config)
+    problems = cfg.validate()
+    if problems:
+        for p in problems:
+            print(f"error: {p}", file=sys.stderr)
+        return 1
+    summary = run(cfg, Level.parse(args.to), Level.parse(args.start))
+    if summary.ok:
+        print(f"done: {', '.join(lv.value for lv in summary.completed)}")
+    else:
+        print(f"error: {summary.error}", file=sys.stderr)
+    if args.notify == "slack":
+        from .notify.slack import SlackNotifier
+
+        SlackNotifier(cfg.slack or SlackSettings()).notify_run(summary)
+    return 0 if summary.ok else 2
+
+
+def _cmd_notify_test(args) -> int:
+    from .notify.slack import SlackNotifier
+
+    settings = load_config(args.config).slack if args.config else None
+    SlackNotifier(settings or SlackSettings()).send(
+        f":seedling: yieldsuite {__version__} can post to this channel"
+    )
+    print("sent")
+    return 0
+
+
+def build_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(prog="yieldsuite", description=__doc__)
+    p.add_argument("--version", action="version", version=f"yieldsuite {__version__}")
+    sub = p.add_subparsers(dest="command", required=True)
+
+    v = sub.add_parser("validate", help="check a field-year config")
+    v.add_argument("config")
+    v.set_defaults(func=_cmd_validate)
+
+    for name, func, helptext in (
+        ("plan", _cmd_plan, "show the stages a run would execute"),
+        ("run", _cmd_run, "process a field-year"),
+    ):
+        s = sub.add_parser(name, help=helptext)
+        s.add_argument("config")
+        s.add_argument("--to", default="L4", help="last level to produce (default L4)")
+        s.add_argument("--from", dest="start", default="L1A", help="first level to rebuild")
+        if name == "run":
+            s.add_argument("--notify", choices=["slack"], help="post a run summary")
+        s.set_defaults(func=func)
+
+    n = sub.add_parser("notify-test", help="post a test message to Slack")
+    n.add_argument("config", nargs="?")
+    n.set_defaults(func=_cmd_notify_test)
+    return p
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
+    return args.func(args)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

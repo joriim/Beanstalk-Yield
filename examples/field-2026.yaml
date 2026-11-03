@@ -1,0 +1,42 @@
+# One file per field and harvest year. Paths are relative to this file.
+field_id: demo-field-01
+year: 2026
+boundary: data/demo-field-01/boundary.gpkg
+crs: EPSG:3067            # ETRS-TM35FIN
+reference_moisture_pct: 14
+
+grid:
+  resolution_m: 20        # matches Sentinel-2 20 m bands
+  origin: [0, 0]          # fixed national origin: every year shares the same cells
+
+machines:
+  - machine_id: combine-a
+    version: 1
+    valid_from: 2026-07-01
+    header_width_m: 7.6
+    tau_d_s: 12
+    tau_m_s: 15
+    antenna_offset_m: [3.2, 0.0]    # forward, right: antenna -> header centre
+
+harvest_logs:
+  - path: data/demo-field-01/2026/TASKDATA
+    machine_id: combine-a
+    format: isoxml
+
+# Weighed loads / weighbridge tickets. Without them the map is "absolute_unreconciled".
+scale_tickets: data/demo-field-01/2026/scale_tickets.csv
+
+imagery:
+  - kind: sentinel2
+  - kind: drone
+    path: data/demo-field-01/2026/mavic3m_2026-07-02_reflectance.tif
+    date: 2026-07-02
+
+output_dir: output/demo-field-01/2026
+
+notify:
+  slack:
+    channel: "#yield-data-suite"
+    # Secrets come from the environment, never from this file:
+    webhook_url_env: YIELDSUITE_SLACK_WEBHOOK_URL
+    bot_token_env: YIELDSUITE_SLACK_BOT_TOKEN

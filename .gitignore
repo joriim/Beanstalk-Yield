@@ -1,0 +1,19 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+build/
+dist/
+site/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+# Local data and outputs never go in git (farm data belongs to the farmer)
+data/
+output/
+*.tif
+*.parquet
+*.gpkg
+.env

@@ -1,0 +1,19 @@
+site_name: Yield Data Suite
+repo_url: https://github.com/joriim/Yield-Data-Suite
+theme:
+  name: material
+  features: [navigation.sections, content.code.copy]
+markdown_extensions:
+  - tables
+  - admonition
+  - pymdownx.superfences
+  - pymdownx.arithmatex:
+      generic: true
+extra_javascript:
+  - https://cdn.jsdelivr.net/npm/mathjax@3.2.2/es5/tex-mml-chtml.js
+nav:
+  - Home: index.md
+  - Architecture: architecture.md
+  - Design – processing levels: design/processing-levels.md
+  - QGIS plugin: qgis.md
+  - Slack: slack.md
