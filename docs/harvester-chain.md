@@ -85,6 +85,35 @@ Scale tickets (`scale_tickets:`) are a CSV with `mass_kg`, and optionally
 Moisture standardisation happens in L2 rather than L1B, because it needs
 moisture aligned to the same grain as the mass flow.
 
+## Flow delay
+
+The delay τ_d (header → mass-flow sensor) is the single parameter that
+damages a map most when wrong. It comes from the machine profile; the chain
+also estimates it from the data every run:
+
+```bash
+yieldsuite delay field.yaml        # per machine: profile value, estimate, curve
+```
+
+The estimate is the delay that makes adjacent passes driven in opposite
+directions agree best (mean squared difference of log yields, records
+compared at their centres, yields smoothed with a 5-record running median so
+sensor spikes do not decide). It is reported as *identifiable* only when the
+discrepancy at a typical wrong delay is at least twice the minimum and the
+minimum is not at the edge of the 0–30 s search range.
+
+| Profile has τ_d | Estimate | Used |
+|---|---|---|
+| yes | agrees within 3 s | profile |
+| yes | differs by > 3 s | profile, with a QA warning to check |
+| no | identifiable | estimate, with a QA warning to store it |
+| no | not identifiable | 12 s default, with a QA warning |
+
+On the synthetic field (true 12 s) estimates over six random seeds were
+11.6–12.4 s. A field without along-track yield pattern gives a flat curve and
+is correctly reported as not identifiable. Vendor exports that already
+applied the delay (entry level L2) are not shifted again.
+
 ## Reconciliation and outliers
 
 Reconciliation uses all harvested mass, including flagged records, because
@@ -106,6 +135,5 @@ In `output_dir`:
 
 ## Not yet
 
-Delay estimation from opposite passes (τ_d comes from the machine profile;
-default 12 s with a warning), local Moran's I, field-boundary edge flag,
+Moisture-delay (τ_m) estimation, local Moran's I, field-boundary edge flag,
 raw force (L0) signals.

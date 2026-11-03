@@ -86,3 +86,31 @@ def run(config: FieldYearConfig, to_level: Level, from_level: Level = Level.L1A)
     summary.mass_ok = state.get("mass_ok")
     summary.outputs = state.get("outputs", {})
     return summary
+
+
+def estimate_delays(config: FieldYearConfig) -> dict:
+    """Run ingest and L2 only and report, per machine, the flow delay the data
+    suggest next to the profile value. Nothing is written."""
+    state: dict = {}
+    stages.stage_ingest(config, state)
+    stages.stage_mass_flow(config, state)
+    stages.stage_georeference(config, state)
+    out = {}
+    for mid, d in state["qa"]["delays"].items():
+        prof = config.machines.get(mid)
+        est = d.get("estimate", {})
+        curve = d.get("estimate_curve", {})
+        out[mid] = {
+            "profile_tau_d_s": prof.tau_d_s if prof else None,
+            "estimated_tau_d_s": est.get("tau_d_s"),
+            "identifiable": est.get("identifiable", False),
+            "reason": est.get(
+                "reason", "vendor already applied the delay" if d.get("vendor_applied") else ""
+            ),
+            "opposite_pass_pairs": est.get("n_pairs", 0),
+            "contrast": est.get("contrast"),
+            "used_tau_d_s": d["tau_d_s"],
+            "used_source": d.get("source", "vendor"),
+            "curve": {str(k): v for k, v in curve.items()},
+        }
+    return out

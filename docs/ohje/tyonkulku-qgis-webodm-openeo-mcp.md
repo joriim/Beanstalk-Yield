@@ -80,6 +80,7 @@ Tarkistuslista: kuvien ja lokien tarkistussumma, koneen tunnus, sadonkorjuupäiv
 |---|---|
 | Laskenta | `--to L2`: massavirta siirretään viiveellä τ_d, kosteus τ_m:llä, antenni → leikkuupöytä, päällekkäisyys poistetaan |
 | QGIS – viiveen tarkastus | Avaa `L3_..._records.parquet` (GeoParquet, QGIS 3.28+ GDAL Arrow -tuella). Tyylitä `yield` jatkuvalla väriasteikolla ja zoomaa kaistanpäihin. **Oikea viive:** vierekkäiset, vastakkaisiin suuntiin ajetut kaistat näyttävät saman kuvion. **Väärä viive:** kuvio "sahaa" kaistojen välillä |
+| Viiveen arvio datasta | `yieldsuite delay lohko.yaml` tai MCP `estimate_delay`: viive, jolla vastakkaisiin suuntiin ajetut vierekkäiset kaistat vastaavat parhaiten toisiaan, sekä koko käyrä. Jos profiilin arvo poikkeaa arviosta yli 3 s, QA-raporttiin tulee varoitus; jos profiilissa ei ole arvoa, arviota käytetään (tasaisella pellolla arvio ei ole luotettava, ja silloin käytetään oletusta 12 s) |
 | Päätös | Uusi viive kirjataan koneprofiiliin (`tau_d_s`), ei karttaan. MCP: `update_machine_profile` luo uuden version (syy pakollinen), sitten `run_chain`. Ajon tulos kertoo, millä profiiliversiolla kartta tehtiin |
 | Julkinen data | — |
 

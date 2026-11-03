@@ -171,6 +171,25 @@ def _cmd_weather(args) -> int:
     return 0
 
 
+def _cmd_delay(args) -> int:
+    from .pipeline import estimate_delays
+
+    cfg = load_config(args.config)
+    for mid, d in estimate_delays(cfg).items():
+        print(
+            f"{mid}: profile {d['profile_tau_d_s']} s, estimated {d['estimated_tau_d_s']} s "
+            f"({d['opposite_pass_pairs']} opposite-pass pairs, contrast "
+            f"{(d['contrast'] or 0):.2f}){'' if d['identifiable'] else ' - ' + d['reason']}"
+        )
+        curve = {float(k): v for k, v in d["curve"].items() if v is not None}
+        if curve:
+            lo, hi = min(curve.values()), max(curve.values())
+            for tau in sorted(curve)[::2]:
+                bar = "#" * int(1 + 40 * (curve[tau] - lo) / ((hi - lo) or 1))
+                print(f"  {tau:5.1f} s {bar}")
+    return 0
+
+
 def _cmd_notify_test(args) -> int:
     from .notify.slack import SlackNotifier
 
@@ -234,6 +253,10 @@ def build_parser() -> argparse.ArgumentParser:
     i.add_argument("--unit", action="append", help="confirm a unit, e.g. --unit speed=mph")
     i.add_argument("--column", action="append", help="map a column, e.g. --column yield_dry=Sato")
     i.set_defaults(func=_cmd_inspect)
+
+    dl = sub.add_parser("delay", help="estimate the flow delay from opposite passes")
+    dl.add_argument("config")
+    dl.set_defaults(func=_cmd_delay)
 
     w = sub.add_parser("weather", help="field weather (ERA5 via Open-Meteo) and agroclimate")
     w.add_argument("config")

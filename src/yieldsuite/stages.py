@@ -16,6 +16,7 @@ from .config import FieldYearConfig
 from .ingest import read_logs
 from .ingest.scale import read_scale_tickets
 from .l1.moisture import to_reference_moisture, valid_moisture
+from .l2.delay import estimate_flow_delay
 from .l2.georef import effective_polygons, header_position, record_polygons
 from .l2.track import (
     derive_heading,
@@ -95,18 +96,55 @@ def stage_georeference(config: FieldYearConfig, state: dict) -> None:
 
         mass_wet = df["mass_flow_wet"].to_numpy()
         moisture = df["moisture"].to_numpy()
+        speed = df["speed"].to_numpy()
+        length = segment_lengths(hx, hy, speed, dt, starts)
+        if np.isnan(speed).all():
+            speed = length / dt
+        harvesting = df["header_down"].to_numpy()
+        swath = np.where(harvesting, df["swath"].to_numpy(), 0.0)
+        pass_id = segment_passes(t, harvesting, heading)
+
         already = Level.parse(df["entry_level"].iloc[0]) >= Level.L2
-        tau_d = 0.0 if already else (prof.tau_d_s if prof.tau_d_s is not None else DEFAULT_TAU_D_S)
-        tau_m = 0.0 if already else (prof.tau_m_s if prof.tau_m_s is not None else tau_d)
-        if not already and prof.tau_d_s is None:
-            state["qa"]["warnings"].append(
-                f"{mid}: no tau_d_s in machine profile, used default {DEFAULT_TAU_D_S} s"
+        info: dict = {"vendor_applied": already}
+        if already:
+            tau_d = 0.0
+        else:
+            # Compare record centres, not the front edge where the header ended:
+            # on opposite passes the front edges are offset in opposite directions.
+            cx = hx - np.sin(heading) * length / 2
+            cy = hy - np.cos(heading) * length / 2
+            est = estimate_flow_delay(
+                t, mass_wet, dt, length * swath, cx, cy, heading, pass_id, swath
             )
+            info["estimate"] = {
+                k: v for k, v in est.as_dict().items() if k not in ("candidates_s", "curve")
+            }
+            info["estimate_curve"] = dict(zip(est.candidates_s, est.curve, strict=False))
+            if prof.tau_d_s is not None:
+                tau_d, info["source"] = prof.tau_d_s, "machine profile"
+                if est.identifiable and abs(est.tau_d_s - prof.tau_d_s) > 3.0:
+                    state["qa"]["warnings"].append(
+                        f"{mid}: data suggest tau_d {est.tau_d_s:g} s, profile has "
+                        f"{prof.tau_d_s:g} s; check in QGIS and update the profile"
+                    )
+            elif est.identifiable:
+                tau_d, info["source"] = est.tau_d_s, "estimated from opposite passes"
+                state["qa"]["warnings"].append(
+                    f"{mid}: tau_d {tau_d:g} s estimated from the data (no profile value); "
+                    "store it in the machine profile once confirmed"
+                )
+            else:
+                tau_d, info["source"] = DEFAULT_TAU_D_S, "default"
+                state["qa"]["warnings"].append(
+                    f"{mid}: no tau_d_s in profile and not identifiable from the data "
+                    f"({est.reason}); used default {DEFAULT_TAU_D_S:g} s"
+                )
+        tau_m = 0.0 if already else (prof.tau_m_s if prof.tau_m_s is not None else tau_d)
         if tau_d:
             mass_wet = shift_signal(t, mass_wet, tau_d)
         if tau_m and not np.isnan(moisture).all():
             moisture = shift_signal(t, moisture, tau_m)
-        delays[mid] = {"tau_d_s": tau_d, "tau_m_s": tau_m, "vendor_applied": already}
+        delays[mid] = {"tau_d_s": tau_d, "tau_m_s": tau_m, **info}
 
         has_mc = np.isfinite(moisture)
         mass_ref = np.where(
@@ -114,12 +152,6 @@ def stage_georeference(config: FieldYearConfig, state: dict) -> None:
             to_reference_moisture(mass_wet, moisture, config.reference_moisture_pct),
             mass_wet,
         )
-        speed = df["speed"].to_numpy()
-        length = segment_lengths(hx, hy, speed, dt, starts)
-        if np.isnan(speed).all():
-            speed = length / dt
-        harvesting = df["header_down"].to_numpy()
-        swath = np.where(harvesting, df["swath"].to_numpy(), 0.0)
 
         df["dt"] = dt
         df["hx"], df["hy"], df["heading"] = hx, hy, heading
@@ -130,7 +162,7 @@ def stage_georeference(config: FieldYearConfig, state: dict) -> None:
         df["mass_missing"] = ~np.isfinite(mass_ref)
         df["length"] = length
         df["swath_used"] = swath
-        df["pass_id"] = segment_passes(t, harvesting, heading)
+        df["pass_id"] = pass_id
         df["applied_delay"] = tau_d
         parts.append(df)
 

@@ -74,7 +74,8 @@ Pre-alpha. Working end to end:
 
 - **L1A–L4** ([docs/harvester-chain.md](docs/harvester-chain.md)): flow-delay
   shift, antenna offset, moisture standardisation, effective area, quality
-  flags, load reconciliation per machine, mass-conserving grid. On the
+  flags, load reconciliation per machine, mass-conserving grid, flow-delay
+  estimation from opposite passes (`yieldsuite delay`). On the
   synthetic field the map is within about 0.04 t/ha RMSE of the truth.
 - **Farm-data MCP server** (`yieldsuite mcp --store <root>`): list fields and
   products, QA, versioned machine profiles, immutable L0 upload, scale

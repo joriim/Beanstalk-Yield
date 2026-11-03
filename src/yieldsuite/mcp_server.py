@@ -114,6 +114,19 @@ def build_server(store: FarmStore, actor: str | None = None):
         }
 
     @server.tool(annotations=read)
+    def estimate_delay(farm: str, field: str, year: int) -> dict:
+        """Estimate each machine's grain-flow delay (tau_d) from adjacent passes driven in
+        opposite directions, next to the machine-profile value. Nothing is written; if
+        the estimate is identifiable and differs, propose update_machine_profile."""
+        from .pipeline import estimate_delays
+
+        cfg = guard(store.load_config, farm, field, year)
+        result = guard(estimate_delays, cfg)
+        for d in result.values():
+            d.pop("curve", None)  # keep the answer short; the CLI shows the curve
+        return {"machines": result}
+
+    @server.tool(annotations=read)
     def inspect_harvest_file(
         path: str, crs: str = "EPSG:3067", options: dict | None = None
     ) -> dict:

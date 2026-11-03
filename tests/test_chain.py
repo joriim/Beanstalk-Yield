@@ -106,3 +106,44 @@ def test_cli_demo_and_run(tmp_path, capsys):
     assert main(["run", str(tmp_path / "field.yaml"), "--to", "L4"]) == 0
     out = capsys.readouterr().out
     assert "mass check OK" in out and "combine-a=" in out
+
+
+# --- flow delay estimation ------------------------------------------------------
+
+
+def _profile_without_delay(cfg, tau=None):
+    prof = cfg.machines["combine-a"]
+    cfg.machines["combine-a"] = type(prof)(**{**prof.__dict__, "tau_d_s": tau, "tau_m_s": tau})
+    return cfg
+
+
+def test_delay_estimated_when_profile_has_none(tmp_path):
+    from yieldsuite.pipeline import estimate_delays
+
+    cfg = _profile_without_delay(load_config(synthetic.write_demo(tmp_path)))
+    d = estimate_delays(cfg)["combine-a"]
+    assert d["identifiable"] and abs(d["estimated_tau_d_s"] - synthetic.TAU_D) <= 1.0
+    assert d["used_source"] == "estimated from opposite passes"
+    s = run(cfg, Level.L4)
+    assert s.ok and s.mass_ok
+
+
+def test_wrong_profile_delay_is_flagged(tmp_path):
+    cfg = _profile_without_delay(load_config(synthetic.write_demo(tmp_path)), tau=20.0)
+    s = run(cfg, Level.L4)
+    qa = json.loads(open(s.outputs["qa"]).read())
+    assert any("data suggest tau_d" in w for w in qa["warnings"])
+
+
+def test_flat_field_delay_not_identifiable(tmp_path, monkeypatch):
+    monkeypatch.setattr(synthetic, "true_yield", lambda x, y: np.full(np.shape(x), 7.0))
+    from yieldsuite.pipeline import estimate_delays
+
+    cfg = _profile_without_delay(load_config(synthetic.write_demo(tmp_path)))
+    d = estimate_delays(cfg)["combine-a"]
+    assert not d["identifiable"] and d["used_source"] == "default"
+
+
+def test_cli_delay(tmp_path, capsys):
+    assert main(["delay", str(synthetic.write_demo(tmp_path))]) == 0
+    assert "estimated" in capsys.readouterr().out

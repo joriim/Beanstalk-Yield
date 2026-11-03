@@ -1,6 +1,6 @@
 """L1 -> L2: time alignment, georeferencing, effective area and yield."""
 
-from .delay import estimate_delay
+from .delay import estimate_delay, estimate_flow_delay, opposite_pass_pairs
 from .georef import (
     delayed_positions,
     effective_area,
@@ -26,6 +26,8 @@ __all__ = [
     "segment_passes",
     "shift_signal",
     "estimate_delay",
+    "estimate_flow_delay",
+    "opposite_pass_pairs",
     "header_position",
     "new_segments",
     "record_polygons",
