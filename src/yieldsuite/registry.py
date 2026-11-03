@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, fields
 from datetime import date
 
 
@@ -35,7 +35,10 @@ class MachineProfile:
 
     @classmethod
     def from_dict(cls, d: dict) -> MachineProfile:
-        d = dict(d)
+        """Build from a dict; keys that are not profile fields (e.g. version metadata
+        such as created/actor/reason) are ignored."""
+        names = {f.name for f in fields(cls)}
+        d = {k: v for k, v in d.items() if k in names}
         for key in ("valid_from", "valid_to"):
             if isinstance(d.get(key), str):
                 d[key] = date.fromisoformat(d[key])

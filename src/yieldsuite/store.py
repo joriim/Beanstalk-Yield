@@ -1,0 +1,464 @@
+"""Farm data store (local folder mode).
+
+Layout::
+
+    <root>/
+      audit.jsonl                          every write: who, when, what, why
+      <farm>/
+        machines/<machine_id>.yaml         versioned machine profiles (append-only)
+        <field>/<year>/
+          field.yaml                       field-year config (paths relative to this folder)
+          raw/                             L0, immutable; raw/manifest.json holds sha256
+          raw/scale_tickets.csv            append-only
+          approvals.jsonl                  human QA decisions
+          output/                          products L3-L5 written by the chain
+
+The server deployment replaces this with object storage + PostGIS + pgSTAC
+behind the same methods.
+"""
+
+from __future__ import annotations
+
+import csv
+import hashlib
+import json
+import re
+import shutil
+from dataclasses import asdict, fields
+from datetime import date, datetime, timezone
+from pathlib import Path
+
+import yaml
+
+from .config import FieldYearConfig, load_config
+from .levels import Level
+from .registry import MachineProfile
+
+_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
+_PRODUCT = re.compile(r"^(L[0-9][AB]?)_.+")
+RAW_KINDS = ("harvest_log", "scale_tickets", "drone_images", "boundary", "other")
+
+
+class StoreError(ValueError):
+    """A request the store refuses (bad id, missing item, overwrite of L0)."""
+
+
+def _check_id(value: str, what: str) -> str:
+    if not isinstance(value, str) or not _ID.match(value) or ".." in value:
+        raise StoreError(f"invalid {what}: {value!r} (letters, digits, _ . - only)")
+    return value
+
+
+def _now() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def _sha256(path: Path) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+class FarmStore:
+    def __init__(self, root: str | Path):
+        self.root = Path(root).resolve()
+        if not self.root.is_dir():
+            raise StoreError(f"store root does not exist: {self.root}")
+
+    # --- paths -------------------------------------------------------------------
+
+    def farm_dir(self, farm: str) -> Path:
+        p = self.root / _check_id(farm, "farm id")
+        if not p.is_dir():
+            raise StoreError(f"unknown farm {farm!r}")
+        return p
+
+    def year_dir(self, farm: str, field: str, year: int) -> Path:
+        p = self.farm_dir(farm) / _check_id(field, "field id") / str(int(year))
+        if not (p / "field.yaml").exists():
+            raise StoreError(f"no field-year {farm}/{field}/{year}")
+        return p
+
+    def _audit(self, actor: str, action: str, target: str, reason: str = "", **details) -> None:
+        entry = {
+            "time": _now(),
+            "actor": actor or "unknown",
+            "action": action,
+            "target": target,
+            "reason": reason,
+            **details,
+        }
+        with open(self.root / "audit.jsonl", "a") as f:
+            f.write(json.dumps(entry, default=str) + "\n")
+
+    # --- read --------------------------------------------------------------------
+
+    def list_farms(self) -> list[str]:
+        return sorted(p.name for p in self.root.iterdir() if p.is_dir() and _ID.match(p.name))
+
+    def list_fields(self, farm: str) -> list[dict]:
+        out = []
+        for fdir in sorted(self.farm_dir(farm).iterdir()):
+            if not fdir.is_dir() or fdir.name == "machines" or not _ID.match(fdir.name):
+                continue
+            years = sorted(
+                int(y.name)
+                for y in fdir.iterdir()
+                if y.is_dir() and y.name.isdigit() and (y / "field.yaml").exists()
+            )
+            if years:
+                out.append({"field_id": fdir.name, "years": years})
+        return out
+
+    def load_config(self, farm: str, field: str, year: int) -> FieldYearConfig:
+        """Field-year config with machine profiles replaced by the store's latest versions."""
+        ydir = self.year_dir(farm, field, year)
+        cfg = load_config(ydir / "field.yaml")
+        cfg.output_dir = ydir / "output"
+        for mid in {log.machine_id for log in cfg.harvest_logs} | set(cfg.machines):
+            versions = self._machine_versions(farm, mid)
+            if versions:
+                cfg.machines[mid] = MachineProfile.from_dict(versions[-1])
+        return cfg
+
+    def list_products(
+        self, farm: str, field: str, year: int | None = None, level: str | None = None
+    ) -> list[dict]:
+        years = (
+            [year]
+            if year is not None
+            else next((f["years"] for f in self.list_fields(farm) if f["field_id"] == field), [])
+        )
+        want = Level.parse(level).value if level else None
+        out = []
+        for y in years:
+            odir = self.year_dir(farm, field, y) / "output"
+            if not odir.is_dir():
+                continue
+            for p in sorted(odir.iterdir()):
+                m = _PRODUCT.match(p.name)
+                if not p.is_file() or not m or (want and m.group(1) != want):
+                    continue
+                out.append(
+                    {
+                        "product_id": f"{farm}/{field}/{y}/{p.name}",
+                        "level": m.group(1),
+                        "kind": _kind(p.name),
+                        "year": y,
+                        "path": str(p),
+                        "size_bytes": p.stat().st_size,
+                        "modified": datetime.fromtimestamp(
+                            p.stat().st_mtime, timezone.utc
+                        ).isoformat(timespec="seconds"),
+                    }
+                )
+        return out
+
+    def get_product(self, product_id: str) -> dict:
+        parts = product_id.split("/")
+        if len(parts) != 4:
+            raise StoreError("product_id must be farm/field/year/file")
+        farm, field, year, name = parts
+        p = self.year_dir(farm, field, int(year)) / "output" / name
+        if "/" in name or not _PRODUCT.match(name) or not p.is_file():
+            raise StoreError(f"unknown product {product_id!r}")
+        info = {"product_id": product_id, "path": str(p), "kind": _kind(name)}
+        if p.suffix == ".json":
+            info["content"] = json.loads(p.read_text())
+        elif p.suffix == ".tif":
+            info.update(_raster_summary(p))
+        return info
+
+    def get_qa(self, farm: str, field: str, year: int) -> dict:
+        ydir = self.year_dir(farm, field, year)
+        out: dict = {"field_id": field, "year": year}
+        for name, key in (
+            (f"L4_{field}_{year}_qa.json", "L4_qa"),
+            (f"L5_{field}_{year}_model_card.json", "L5_model_card"),
+        ):
+            p = ydir / "output" / name
+            if p.exists():
+                out[key] = json.loads(p.read_text())
+        appr = ydir / "approvals.jsonl"
+        if appr.exists():
+            out["approvals"] = [json.loads(line) for line in appr.read_text().splitlines() if line]
+        if len(out) == 2:
+            out["note"] = "no QA yet: run the chain first"
+        return out
+
+    def _machine_file(self, farm: str, machine_id: str) -> Path:
+        return self.farm_dir(farm) / "machines" / f"{_check_id(machine_id, 'machine id')}.yaml"
+
+    def _machine_versions(self, farm: str, machine_id: str) -> list[dict]:
+        p = self._machine_file(farm, machine_id)
+        if not p.exists():
+            return []
+        return (yaml.safe_load(p.read_text()) or {}).get("versions", [])
+
+    def get_machine_profile(self, farm: str, machine_id: str, version: int | None = None) -> dict:
+        versions = self._machine_versions(farm, machine_id)
+        if not versions:
+            raise StoreError(f"no profile for machine {machine_id!r} on farm {farm!r}")
+        if version is None:
+            current = versions[-1]
+        else:
+            match = [v for v in versions if v.get("version") == version]
+            if not match:
+                raise StoreError(f"machine {machine_id!r} has no version {version}")
+            current = match[0]
+        history = [
+            {k: v.get(k) for k in ("version", "created", "actor", "reason")} for v in versions
+        ]
+        return {"profile": current, "history": history}
+
+    # --- write (append-only, audited) -----------------------------------------------
+
+    def update_machine_profile(
+        self, farm: str, machine_id: str, changes: dict, reason: str, actor: str
+    ) -> dict:
+        """Append a new profile version; earlier versions are never modified."""
+        if not reason:
+            raise StoreError("a reason is required for every profile change")
+        allowed = {f.name for f in fields(MachineProfile)} - {"machine_id", "version"}
+        bad = set(changes) - allowed
+        if bad:
+            raise StoreError(f"unknown profile fields {sorted(bad)}; allowed: {sorted(allowed)}")
+        versions = self._machine_versions(farm, machine_id)
+        base = dict(versions[-1]) if versions else {"machine_id": machine_id, "version": 0}
+        for meta in ("created", "actor", "reason"):
+            base.pop(meta, None)
+        new = {**base, **changes, "machine_id": machine_id, "version": base["version"] + 1}
+        new.setdefault("valid_from", date.today().isoformat())
+        profile = MachineProfile.from_dict(new)  # validates types
+        record = {
+            **json.loads(json.dumps(asdict(profile), default=str)),
+            "created": _now(),
+            "actor": actor,
+            "reason": reason,
+        }
+        p = self._machine_file(farm, machine_id)
+        p.parent.mkdir(exist_ok=True)
+        p.write_text(yaml.safe_dump({"versions": [*versions, record]}, sort_keys=False))
+        self._audit(
+            actor,
+            "update_machine_profile",
+            f"{farm}/machines/{machine_id}",
+            reason,
+            version=record["version"],
+            changes=changes,
+        )
+        return {
+            "machine_id": machine_id,
+            "version": record["version"],
+            "param_hash": profile.param_hash(),
+        }
+
+    def upload_raw(
+        self,
+        farm: str,
+        field: str,
+        year: int,
+        kind: str,
+        source: str | Path,
+        actor: str,
+        name: str | None = None,
+    ) -> dict:
+        """Copy a file into L0. Existing L0 files are never overwritten."""
+        if kind not in RAW_KINDS:
+            raise StoreError(f"kind must be one of {RAW_KINDS}")
+        src = Path(source).expanduser()
+        if not src.is_file():
+            raise StoreError(f"source file not found: {src}")
+        name = _check_id(name or src.name, "file name")
+        raw = self.year_dir(farm, field, year) / "raw"
+        dest = raw / kind / name
+        if dest.exists():
+            raise StoreError(f"L0 is immutable: {kind}/{name} already exists")
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src, dest)
+        digest = _sha256(dest)
+        manifest_path = raw / "manifest.json"
+        manifest = json.loads(manifest_path.read_text()) if manifest_path.exists() else []
+        entry = {
+            "path": f"{kind}/{name}",
+            "sha256": digest,
+            "size_bytes": dest.stat().st_size,
+            "uploaded": _now(),
+            "actor": actor,
+        }
+        manifest_path.write_text(json.dumps([*manifest, entry], indent=2))
+        self._audit(actor, "upload_raw", f"{farm}/{field}/{year}/raw/{kind}/{name}", sha256=digest)
+        return entry
+
+    def add_scale_ticket(
+        self,
+        farm: str,
+        field: str,
+        year: int,
+        mass_kg: float,
+        actor: str,
+        machine_id: str | None = None,
+        moisture_pct: float | None = None,
+        ticket_ref: str = "",
+    ) -> dict:
+        if not mass_kg or mass_kg <= 0:
+            raise StoreError("mass_kg must be positive")
+        if moisture_pct is not None and not 0 <= moisture_pct < 100:
+            raise StoreError("moisture_pct must be in [0, 100)")
+        ydir = self.year_dir(farm, field, year)
+        path = ydir / "raw" / "scale_tickets.csv"
+        path.parent.mkdir(exist_ok=True)
+        cols = ["machine_id", "mass_kg", "moisture_pct", "ticket_ref", "added", "actor"]
+        new = not path.exists()
+        if not new:
+            with open(path) as f:
+                header = next(csv.reader(f), [])
+            if header != cols:
+                raise StoreError(f"{path.name} has columns {header}; expected {cols}")
+        row = [
+            machine_id or "*",
+            mass_kg,
+            "" if moisture_pct is None else moisture_pct,
+            ticket_ref,
+            _now(),
+            actor,
+        ]
+        with open(path, "a", newline="") as f:
+            w = csv.writer(f)
+            if new:
+                w.writerow(cols)
+            w.writerow(row)
+        self._set_config_key(farm, field, year, "scale_tickets", "raw/scale_tickets.csv")
+        self._audit(
+            actor,
+            "add_scale_ticket",
+            f"{farm}/{field}/{year}",
+            mass_kg=mass_kg,
+            machine_id=machine_id,
+            moisture_pct=moisture_pct,
+            ticket_ref=ticket_ref,
+        )
+        return dict(zip(cols, row, strict=True))
+
+    def approve_qa(
+        self, farm: str, field: str, year: int, decision: str, note: str, actor: str
+    ) -> dict:
+        if decision not in ("approved", "rejected", "needs_data"):
+            raise StoreError("decision must be approved, rejected or needs_data")
+        ydir = self.year_dir(farm, field, year)
+        qa = ydir / "output" / f"L4_{field}_{year}_qa.json"
+        entry = {
+            "time": _now(),
+            "actor": actor,
+            "decision": decision,
+            "note": note,
+            "qa_sha256": _sha256(qa) if qa.exists() else None,
+        }
+        with open(ydir / "approvals.jsonl", "a") as f:
+            f.write(json.dumps(entry) + "\n")
+        self._audit(actor, "approve_qa", f"{farm}/{field}/{year}", note, decision=decision)
+        return entry
+
+    def record_run(self, farm: str, field: str, year: int, actor: str, summary: dict) -> None:
+        self._audit(actor, "run_chain", f"{farm}/{field}/{year}", **summary)
+
+    def _set_config_key(self, farm: str, field: str, year: int, key: str, value) -> None:
+        p = self.year_dir(farm, field, year) / "field.yaml"
+        raw = yaml.safe_load(p.read_text()) or {}
+        if raw.get(key) != value:
+            raw[key] = value
+            p.write_text(yaml.safe_dump(raw, sort_keys=False))
+
+
+def _kind(name: str) -> str:
+    if name.endswith("_qa.json"):
+        return "qa_report"
+    if name.endswith("_model_card.json"):
+        return "model_card"
+    if name.endswith("_s2_features.csv"):
+        return "sentinel2_features"
+    if "_records." in name:
+        return "records"
+    if name.endswith(".tif"):
+        return "raster"
+    return "file"
+
+
+def _raster_summary(path: Path) -> dict:
+    try:
+        from .l4.io import read_bands
+    except ImportError:  # pragma: no cover
+        return {}
+    try:
+        bands, grid, crs = read_bands(path)
+    except ImportError:
+        return {"note": "install yieldsuite[geo] for raster summaries"}
+    import numpy as np
+
+    y = bands["yield"]
+    finite = np.isfinite(y)
+    return {
+        "crs": crs,
+        "grid": {
+            "xmin": grid.xmin,
+            "ymax": grid.ymax,
+            "resolution": grid.resolution,
+            "nx": grid.nx,
+            "ny": grid.ny,
+        },
+        "bands": list(bands),
+        "yield_t_ha": {
+            "cells": int(finite.sum()),
+            "mean": float(np.nanmean(y)) if finite.any() else None,
+            "p10": float(np.nanpercentile(y, 10)) if finite.any() else None,
+            "p90": float(np.nanpercentile(y, 90)) if finite.any() else None,
+        },
+    }
+
+
+def init_demo_store(root: str | Path, farm: str = "demo-farm") -> Path:
+    """Create a store with one synthetic field-year (see ``yieldsuite.synthetic``)."""
+    from . import synthetic
+
+    root = Path(root)
+    ydir = root / farm / "synthetic-01" / "2026"
+    (ydir / "raw" / "harvest_log").mkdir(parents=True, exist_ok=True)
+    f = synthetic.make_field(0)
+    log_path = ydir / "raw" / "harvest_log" / "combine-a_2026.csv"
+    f.log.to_csv(log_path, index=False)
+    tickets = ydir / "raw" / "scale_tickets.csv"
+    with open(tickets, "w", newline="") as fh:
+        w = csv.writer(fh)
+        w.writerow(["machine_id", "mass_kg", "moisture_pct", "ticket_ref", "added", "actor"])
+        for i, row in enumerate(f.tickets.itertuples(), 1):
+            w.writerow([row.machine_id, row.mass_kg, row.moisture_pct, f"demo-{i}", _now(), "demo"])
+    manifest = [
+        {
+            "path": "harvest_log/combine-a_2026.csv",
+            "sha256": _sha256(log_path),
+            "size_bytes": log_path.stat().st_size,
+            "uploaded": _now(),
+            "actor": "demo",
+        }
+    ]
+    (ydir / "raw" / "manifest.json").write_text(json.dumps(manifest, indent=2))
+
+    cfg = yaml.safe_load(synthetic.write_demo(root / ".demo-tmp").read_text())
+    shutil.rmtree(root / ".demo-tmp")
+    machines = cfg.pop("machines")
+    cfg["harvest_logs"][0]["path"] = "raw/harvest_log/combine-a_2026.csv"
+    cfg["scale_tickets"] = "raw/scale_tickets.csv"
+    cfg["output_dir"] = "output"
+    cfg["notify"] = {"slack": {"channel": "#yield-data-suite"}}
+    (ydir / "field.yaml").write_text(yaml.safe_dump(cfg, sort_keys=False))
+
+    mdir = root / farm / "machines"
+    mdir.mkdir(exist_ok=True)
+    for m in machines:
+        rec = {**m, "version": 1, "created": _now(), "actor": "demo", "reason": "initial profile"}
+        (mdir / f"{m['machine_id']}.yaml").write_text(
+            yaml.safe_dump({"versions": [rec]}, sort_keys=False)
+        )
+    return root

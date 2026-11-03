@@ -5,9 +5,11 @@ Tämä ohje kertoo, mitä työkalua käytetään missäkin prosessointitason vai
 datavarastoa luetaan ja päivitetään sekä julkisia aineistoja haetaan.
 
 > **Tila (marraskuu 2026).** Toteutettu: ydinkirjasto L1A–L4 (CSV-vienti),
-> L5 Sentinel-2 openEO:n kautta, komentorivi, Slack-ilmoitukset.
-> Ei vielä toteutettu: MCP-palvelin, WebODM-integraatio, QGIS-algoritmien
-> kytkentä, ISOXML-luku. Ne on merkitty alla tunnuksella **[suunnitelma]**.
+> L5 Sentinel-2 openEO:n kautta, komentorivi, Slack-ilmoitukset,
+> tiladata-MCP:n datavarastotyökalut ja `run_chain` (luku 3).
+> Ei vielä toteutettu: MCP:n julkiset haut, WebODM-integraatio,
+> QGIS-algoritmien kytkentä, ISOXML-luku. Ne on merkitty alla tunnuksella
+> **[suunnitelma]**.
 
 ## 1. Roolijako yhdellä silmäyksellä
 
@@ -31,11 +33,11 @@ muokata käsin.
 
 | Mitä | Miten |
 |---|---|
-| Puimurin lokit (CSV / ISOXML), vaakalaput, drone-kuvat | Tallennetaan muuttumattomina. MCP: `upload_raw` **[suunnitelma]**; nyt: kansio `data/<lohko>/<vuosi>/` |
+| Puimurin lokit (CSV / ISOXML), vaakalaput, drone-kuvat | Tallennetaan muuttumattomina. MCP: `upload_raw` (tallentaa `raw/`-kansioon tarkistussummineen; olemassa olevaa ei voi korvata) |
 | QGIS | Ei tarvita |
 | WebODM | Drone-kuvien L0 on WebODM-projektin alkuperäiset kuvat; ne säilytetään myös varastossa |
 | openEO | Ei käytetä |
-| Julkinen data | Peltolohkon raja (Ruokavirasto, peltolohkorekisteri) → `boundary`. MCP: `get_parcel` **[suunnitelma]** |
+| Julkinen data | Peltolohkon raja (Ruokavirasto, peltolohkorekisteri) → `boundary`. MCP: `get_parcel` **[suunnitelma]**; nyt: `upload_raw` kind `boundary` |
 
 Tarkistuslista: kuvien ja lokien tarkistussumma, koneen tunnus, sadonkorjuupäivä.
 
@@ -45,8 +47,8 @@ Tarkistuslista: kuvien ja lokien tarkistussumma, koneen tunnus, sadonkorjuupäiv
 |---|---|
 | Laskenta | `yieldsuite run lohko.yaml --to L1B` (CSV-viennit tulevat valmiiksi L1B-tasolla) |
 | QGIS | Raakapisteiden nopea silmäily: *Tason lisäys → Erotinmerkein eroteltu teksti*, x/y-sarakkeet, tyyli massavirran mukaan. Etsi: puuttuvat jaksot, GNSS-hypyt, väärät yksiköt |
-| MCP | `get_machine_profile`, `update_machine_profile` (header-leveys, antennin siirtymä, kalibrointikäyrä) **[suunnitelma]** |
-| Kalibrointikuormat | Vaakalaput CSV:nä (`mass_kg`, `machine_id`, `moisture_pct`); MCP: `add_scale_ticket` **[suunnitelma]** |
+| MCP | `get_machine_profile`, `update_machine_profile` (header-leveys, antennin siirtymä, kalibrointikäyrä) |
+| Kalibrointikuormat | Vaakalaput CSV:nä (`mass_kg`, `machine_id`, `moisture_pct`); MCP: `add_scale_ticket` |
 
 ### L2 – Viive, sijainti, tehollinen ala
 
@@ -54,7 +56,7 @@ Tarkistuslista: kuvien ja lokien tarkistussumma, koneen tunnus, sadonkorjuupäiv
 |---|---|
 | Laskenta | `--to L2`: massavirta siirretään viiveellä τ_d, kosteus τ_m:llä, antenni → leikkuupöytä, päällekkäisyys poistetaan |
 | QGIS – viiveen tarkastus | Avaa `L3_..._records.parquet` (GeoParquet, QGIS 3.28+ GDAL Arrow -tuella). Tyylitä `yield` jatkuvalla väriasteikolla ja zoomaa kaistanpäihin. **Oikea viive:** vierekkäiset, vastakkaisiin suuntiin ajetut kaistat näyttävät saman kuvion. **Väärä viive:** kuvio "sahaa" kaistojen välillä |
-| Päätös | Uusi viive kirjataan koneprofiiliin (`tau_d_s`), ei karttaan. MCP: `update_machine_profile` luo uuden version ja käynnistää uudelleenajon **[suunnitelma]** |
+| Päätös | Uusi viive kirjataan koneprofiiliin (`tau_d_s`), ei karttaan. MCP: `update_machine_profile` luo uuden version (syy pakollinen), sitten `run_chain`. Ajon tulos kertoo, millä profiiliversiolla kartta tehtiin |
 | Julkinen data | — |
 
 ### L3 – Kalibrointi vaakaan ja liputus
@@ -64,7 +66,7 @@ Tarkistuslista: kuvien ja lokien tarkistussumma, koneen tunnus, sadonkorjuupäiv
 | Laskenta | `--to L3`: liput (leikkuupöytä ylhäällä, kaistan päät, nopeus, kosteus, leveys, GNSS, poikkeamat) ja kerroin k konekohtaisesti |
 | QGIS – lippujen tarkastus | Tyylitä `flags` luokiteltuna (0 = puhdas). Tarkista, että liputettu osuus on järkevä (tyypillisesti 20–40 %, synteettisellä pellolla ~10 %) ja että poikkeamat eivät kasaudu yhteen kohtaan (silloin kyse voi olla todellisesta ilmiöstä) |
 | QA | `L4_..._qa.json`: k-kertoimet, lippujen määrät, varoitukset. Slack-viesti näyttää samat luvut |
-| Päätös | Hyväksy k tai pyydä lisää vaakalappuja. MCP: `approve_qa` **[suunnitelma]**; Slack-painike vaiheessa 2 |
+| Päätös | Hyväksy k tai pyydä lisää vaakalappuja. MCP: `approve_qa` (approved / rejected / needs_data); Slack-painike myöhemmin |
 | Julkinen data | Peltolohkon raja reunapuskurin liputukseen (`FIELD_EDGE`) **[suunnitelma]** |
 
 ### L4 – Ruudukko
@@ -73,7 +75,7 @@ Tarkistuslista: kuvien ja lokien tarkistussumma, koneen tunnus, sadonkorjuupäiv
 |---|---|
 | Laskenta | `--to L4`: massa jaetaan kiinteään ruudukkoon (EPSG:3067 tai UTM 35N, 20 m), massan säilyminen tarkistetaan |
 | QGIS | Avaa `L4_..._yield.tif`. Kaistat: `yield`, `coverage`, `n_records`, `spread`, `flagged_share`, `passes`. Näytä `yield` vain, kun `coverage` ≥ 0,5 (Raster Calculator tai tyylin läpinäkyvyys toisen kaistan mukaan) |
-| MCP | `get_product(lohko, vuosi, taso="L4")`, `list_products` **[suunnitelma]** |
+| MCP | `list_products(farm, field, level="L4")`, `get_product(product_id)` (ruudukko ja satotilastot) |
 
 ### L5 – Fuusio: Sentinel-2 ja drone
 
@@ -102,7 +104,7 @@ Tarkistuslista: kuvien ja lokien tarkistussumma, koneen tunnus, sadonkorjuupäiv
 | Julkinen data | Maanmittauslaitoksen korkeusmalli 2 m (rinne, kosteusindeksi), GTK:n maaperäkartta, Ilmatieteen laitoksen säädata (lämpösumma, sademäärä vuosien vertailuun). MCP: `get_elevation`, `get_soil_map`, `get_weather` |
 | QGIS | Lohkorajojen viimeistely ja yhdistely, levityskarttojen pohja |
 
-## 3. Tiladata-MCP-palvelin [suunnitelma]
+## 3. Tiladata-MCP-palvelin
 
 ### Miksi
 
@@ -125,33 +127,80 @@ kenenkään ei tarvitse tuntea tallennusrakennetta tai rajapinta-avaimia.
                                └──► Julkiset suomalaiset rajapinnat (MML, Ruokavirasto, GTK, IL)
 ```
 
-Aloitus paikallisena (stdio-MCP, Python MCP SDK) samaan repoon
-`server/mcp/`-kansioon. Palvelinversio käyttää samoja työkaluja
-PostGIS/pgSTAC-taustalla.
+Paikallinen versio on toteutettu: `yieldsuite.store` (kansiovarasto) ja
+`yieldsuite.mcp_server` (stdio, Python MCP SDK 2.x). Palvelinversio käyttää
+samoja työkaluja PostGIS/pgSTAC-taustalla **[suunnitelma]**.
+
+Varaston rakenne:
+
+```
+<varasto>/
+  audit.jsonl                        jokainen kirjoitus: kuka, milloin, mitä, miksi
+  <tila>/machines/<kone>.yaml        koneprofiilin versiot (vain lisäys)
+  <tila>/<lohko>/<vuosi>/
+    field.yaml                       lohkovuoden asetukset
+    raw/                             L0, muuttumaton; raw/manifest.json = sha256
+    raw/scale_tickets.csv            vaakalaput (vain lisäys)
+    approvals.jsonl                  QA-päätökset
+    output/                          L3–L5-tuotteet
+```
+
+### Käyttöönotto
+
+```bash
+pip install "yieldsuite[geo,mcp]"
+yieldsuite store-demo ~/tiladata            # kokeiluvarasto synteettisellä lohkolla
+```
+
+Claude Code:
+
+```bash
+claude mcp add yieldsuite --env YIELDSUITE_ACTOR=<nimesi> -- yieldsuite mcp --store ~/tiladata
+```
+
+Claude Desktop (`claude_desktop_config.json`):
+
+```json
+{"mcpServers": {"yieldsuite": {
+  "command": "yieldsuite",
+  "args": ["mcp", "--store", "/polku/tiladata"],
+  "env": {"YIELDSUITE_ACTOR": "nimesi",
+          "YIELDSUITE_SLACK_WEBHOOK_URL": "https://hooks.slack.com/services/..."}
+}}}
+```
+
+`YIELDSUITE_ACTOR` kirjataan auditlokiin jokaiseen muutokseen. Slack-muuttuja
+tarvitaan vain, jos `run_chain` postaa yhteenvedon (`notify_slack: true`).
+
+Esimerkkikysymyksiä Claudelle: *"Aja demo-farm/synthetic-01/2026 L4:ään ja
+kerro QA"*, *"Viive näyttää QGISissä 2 s liian lyhyeltä – päivitä profiili ja
+aja uudelleen"*, *"Hyväksy QA, kerroin on vaakalappujen mukainen."*
 
 ### Työkalut
 
-**Datavarasto – luku**
+**Datavarasto – luku** (toteutettu)
 
 | Työkalu | Palauttaa |
 |---|---|
-| `list_fields(farm_id)` | Lohkot, rajat, vuodet joilta dataa on |
-| `list_products(field_id, year?, level?)` | STAC-tuotteet: taso, tuoteluokka (absolute / relative), parametrihash, luontiaika |
+| `list_farms()` | Tilat |
+| `list_fields(farm)` | Lohkot ja vuodet, joilta dataa on |
+| `list_products(farm, field, year?, level?)` | Tuotteet: taso, tyyppi, koko, aika |
+| `plan_chain(farm, field, year, to_level)` | Tuoteluokka ja ajettavat vaiheet ilman ajoa |
 | `get_product(product_id)` | Polku/URL, kaistat, QA-yhteenveto tai mallikortti |
-| `get_qa(field_id, year)` | QA-raportti: k, liput, massan säilyminen, varoitukset |
-| `get_machine_profile(machine_id, version?)` | Viiveet, offsetit, kalibrointi; versiohistoria |
+| `get_qa(farm, field, year)` | QA-raportti: k, liput, massan säilyminen, varoitukset, L5-mallikortti, hyväksynnät |
+| `get_machine_profile(farm, machine_id, version?)` | Viiveet, offsetit, kalibrointi; versiohistoria |
 
-**Datavarasto – päivitys** (vaatii vahvistuksen, kirjataan auditlokiin)
+**Datavarasto – päivitys** (toteutettu; vaatii vahvistuksen, kirjataan auditlokiin)
 
 | Työkalu | Tekee |
 |---|---|
-| `upload_raw(field_id, year, kind, file)` | Tallentaa L0:n muuttumattomana, laskee tarkistussumman |
-| `add_scale_ticket(field_id, year, machine_id, mass_kg, moisture_pct)` | Lisää vaakalapun |
-| `update_machine_profile(machine_id, changes, reason)` | Luo **uuden version**, ei ylikirjoita |
-| `run_chain(field_id, year, to_level)` | Ajaa ytimen, palauttaa ajon yhteenvedon, postaa Slackiin |
-| `approve_qa(field_id, year, decision, note)` | Kirjaa ihmisen hyväksynnän |
+| `upload_raw(farm, field, year, kind, source_path)` | Tallentaa L0:n muuttumattomana, laskee tarkistussumman |
+| `add_scale_ticket(farm, field, year, mass_kg, machine_id?, moisture_pct?)` | Lisää vaakalapun |
+| `update_machine_profile(farm, machine_id, changes, reason)` | Luo **uuden version**, ei ylikirjoita |
+| `run_chain(farm, field, year, to_level, notify_slack)` | Ajaa ytimen, palauttaa yhteenvedon ja tuotetunnukset, valinnaisesti Slackiin |
+| `approve_qa(farm, field, year, decision, note)` | Kirjaa ihmisen hyväksynnän |
 
-**Julkiset haut** (vain luku, tulokset välimuistiin alkuperätietoineen)
+**Julkiset haut** **[suunnitelma]** (vain luku, tulokset välimuistiin alkuperätietoineen)
 
 | Työkalu | Lähde | Käyttö |
 |---|---|---|
@@ -177,8 +226,8 @@ toteutusvaiheessa; ne muuttuvat useammin kuin tämä ohje.
 
 ## 4. Toteutusjärjestys
 
-1. MCP:n lukutyökalut paikallista kansiovarastoa vasten (`list_products`, `get_qa`, `get_product`).
-2. `run_chain` + Slack-yhteenveto + `update_machine_profile` (viivekorjauksen kierros QGIS → profiili → uudelleenajo).
+1. ~~MCP:n lukutyökalut paikallista kansiovarastoa vasten~~ – tehty.
+2. ~~`run_chain` + Slack-yhteenveto + `update_machine_profile`~~ – tehty.
 3. `search_sentinel2` ja `get_parcel`.
 4. WebODM-työkalut ja drone-yhdenmukaistus L5:een.
 5. MML-, GTK- ja IL-haut lohkojaon tueksi.

@@ -39,6 +39,8 @@ src/yieldsuite/   core library (headless, pip-installable)
   catalog.py      STAC product metadata
   pipeline.py     runs a field-year; becomes Dagster assets on the server
   notify/         optional Slack notifications
+  store.py        farm data store (folder mode), versioned, audited
+  mcp_server.py   farm-data MCP server
   cli.py          `yieldsuite` command
 qgis_plugin/      QGIS Processing provider (GPL-2.0-or-later)
 server/           phase 2: PostGIS, pgSTAC, Dagster, FastAPI, web viewer
@@ -64,13 +66,18 @@ Pre-alpha. Working end to end on vendor CSV exports:
   shift, antenna offset, moisture standardisation, effective area, quality
   flags, load reconciliation per machine, mass-conserving grid. On the
   synthetic field the map is within about 0.04 t/ha RMSE of the truth.
+- **Farm-data MCP server** (`yieldsuite mcp --store <root>`): list fields and
+  products, QA, versioned machine profiles, immutable L0 upload, scale
+  tickets, QA approvals, `run_chain` with optional Slack summary; every write
+  goes to an audit log. Setup in the Finnish guide below.
 - **L5** ([docs/l5-sentinel2.md](docs/l5-sentinel2.md)): Sentinel-2 via openEO,
   yield-image model, regression-kriging gap fill. Not yet run against the live
   backend.
 
 Not yet: ISOXML and raw-force (L0) input, delay estimation from opposite
 passes, local Moran's I, field-boundary edge flag, the other L5 corrections
-(position shift, stripes, zones), the QGIS algorithm wiring, the server.
+(position shift, stripes, zones), public-data tools in the MCP server,
+WebODM, the QGIS algorithm wiring, the PostGIS/pgSTAC server.
 
 ## Työnkulkuohje (suomeksi)
 

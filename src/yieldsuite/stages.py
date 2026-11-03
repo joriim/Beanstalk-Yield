@@ -200,7 +200,13 @@ def stage_clean(config: FieldYearConfig, state: dict) -> None:
     if config.scale_tickets is not None:
         tickets = read_scale_tickets(config.scale_tickets, config.reference_moisture_pct)
         monitor = rec.groupby("machine_id")["mass_kg_for_reconciliation"].sum()
-        if (tickets["machine_id"] == "*").all():
+        generic = tickets["machine_id"] == "*"
+        if generic.any() and not generic.all():
+            raise ValueError(
+                "scale tickets mix machine-specific and unassigned rows; assign every "
+                "ticket to a machine or none of them"
+            )
+        if generic.all():
             k = reconciliation_factor(tickets["mass_ref_kg"], monitor.sum())
             k_factors = {m: k for m in monitor.index}
         else:

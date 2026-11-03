@@ -110,6 +110,22 @@ def _cmd_demo(args) -> int:
     return 0
 
 
+def _cmd_mcp(args) -> int:  # pragma: no cover - stdio loop
+    from .mcp_server import main as mcp_main
+
+    mcp_main(args.store)
+    return 0
+
+
+def _cmd_store_demo(args) -> int:
+    from .store import init_demo_store
+
+    root = init_demo_store(args.root)
+    print(f"demo store at {root}: farm demo-farm, field synthetic-01, year 2026")
+    print(f"next: yieldsuite mcp --store {root}")
+    return 0
+
+
 def _cmd_notify_test(args) -> int:
     from .notify.slack import SlackNotifier
 
@@ -156,6 +172,14 @@ def build_parser() -> argparse.ArgumentParser:
     d = sub.add_parser("demo", help="write a synthetic field-year to try the chain")
     d.add_argument("out_dir")
     d.set_defaults(func=_cmd_demo)
+
+    m = sub.add_parser("mcp", help="run the farm-data MCP server (stdio)")
+    m.add_argument("--store", help="data store root (default: $YIELDSUITE_STORE)")
+    m.set_defaults(func=_cmd_mcp)
+
+    sd = sub.add_parser("store-demo", help="create a data store with a synthetic field")
+    sd.add_argument("root")
+    sd.set_defaults(func=_cmd_store_demo)
 
     n = sub.add_parser("notify-test", help="post a test message to Slack")
     n.add_argument("config", nargs="?")
