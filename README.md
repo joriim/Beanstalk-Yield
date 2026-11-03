@@ -72,6 +72,11 @@ Not yet: ISOXML and raw-force (L0) input, delay estimation from opposite
 passes, local Moran's I, field-boundary edge flag, the other L5 corrections
 (position shift, stripes, zones), the QGIS algorithm wiring, the server.
 
+## Työnkulkuohje (suomeksi)
+
+QGIS, WebODM, openEO ja tiladata-MCP vaiheittain:
+[docs/ohje/tyonkulku-qgis-webodm-openeo-mcp.md](docs/ohje/tyonkulku-qgis-webodm-openeo-mcp.md).
+
 ## Slack
 
 Run summaries can be posted to `#yield-data-suite`; see [docs/slack.md](docs/slack.md).
