@@ -100,6 +100,10 @@ elevation/soil/station-weather tools in the MCP server, WebODM, the QGIS algorit
 QGIS, WebODM, openEO ja tiladata-MCP vaiheittain:
 [docs/ohje/tyonkulku-qgis-webodm-openeo-mcp.md](docs/ohje/tyonkulku-qgis-webodm-openeo-mcp.md).
 
+Suunnitelma Datakasvukunnon satokartoitusdatalle, GrainSense Combinelle,
+Mavic 3M:lle, Sentinel-2:lle ja PlanetScopelle:
+[docs/ohje/datalahteet-suunnitelma.md](docs/ohje/datalahteet-suunnitelma.md).
+
 ## Slack
 
 Run summaries can be posted to `#yield-data-suite`; see [docs/slack.md](docs/slack.md).

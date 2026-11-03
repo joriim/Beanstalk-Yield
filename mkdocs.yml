@@ -22,4 +22,5 @@ nav:
   - Management zones: zones.md
   - QGIS plugin: qgis.md
   - Ohje – työnkulku ja MCP: ohje/tyonkulku-qgis-webodm-openeo-mcp.md
+  - Suunnitelma – datalähteet: ohje/datalahteet-suunnitelma.md
   - Slack: slack.md
