@@ -17,7 +17,15 @@ DEFAULT_SLACK_CHANNEL = "#yield-data-suite"
 class HarvestLog:
     path: Path
     machine_id: str
-    format: str = "isoxml"  # isoxml | csv | shapefile | agleader_text
+    format: str = "isoxml"  # isoxml | csv
+    # csv: map canonical names (time, x, y | lon, lat, mass_flow, moisture, swath,
+    # speed, heading, header, gnss_quality) to the file's column names
+    columns: dict[str, str] = field(default_factory=dict)
+    entry_level: str = "L1B"  # L1B: mass flow, no delay applied; L2: vendor applied delay
+    mass_flow_unit: str = "kg/s"  # kg/s | t/h
+    speed_unit: str = "m/s"  # m/s | km/h
+    heading_unit: str = "deg"  # deg | rad, clockwise from north
+    position_crs: str | None = None  # CRS of x/y if not the field CRS
 
 
 @dataclass
@@ -101,14 +109,12 @@ def load_config(path: str | Path) -> FieldYearConfig:
     raw = yaml.safe_load(path.read_text()) or {}
 
     machines = {m["machine_id"]: MachineProfile.from_dict(m) for m in raw.get("machines", [])}
-    logs = [
-        HarvestLog(
-            path=_path(base, h["path"]),
-            machine_id=h["machine_id"],
-            format=h.get("format", "isoxml"),
-        )
-        for h in raw.get("harvest_logs", [])
-    ]
+    logs = []
+    for h in raw.get("harvest_logs", []):
+        h = dict(h)
+        h["path"] = _path(base, h["path"])
+        h["columns"] = dict(h.get("columns") or {})
+        logs.append(HarvestLog(**h))
     imagery = []
     for i in raw.get("imagery", []):
         i = dict(i)

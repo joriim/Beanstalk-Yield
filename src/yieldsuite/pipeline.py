@@ -10,6 +10,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
+from . import stages
 from .config import FieldYearConfig
 from .levels import Level, ProductClass
 
@@ -36,6 +37,7 @@ class RunSummary:
     k_factors: dict[str, float] = field(default_factory=dict)
     mass_ok: bool | None = None
     viewer_url: str | None = None
+    outputs: dict[str, str] = field(default_factory=dict)
     notes: list[str] = field(default_factory=list)
     error: str | None = None
 
@@ -44,25 +46,17 @@ class RunSummary:
         return self.error is None
 
 
-def _stage_l5(config: FieldYearConfig, state: dict) -> None:
-    """Sentinel-2 fusion on the L4 grid held in ``state`` (see ``yieldsuite fuse``)."""
-    if "l4" not in state:
-        raise RuntimeError(
-            "L5 needs an L4 yield grid; imagery-only relative maps are not built yet"
-        )
-    from .l5.run import run_sentinel2_fusion
-
-    result = run_sentinel2_fusion(config, state["l4"], state["grid"])
-    state["l5"] = result
-
-
 STAGES: list[Stage] = [
-    Stage(Level.L1A, "decode logs to SI units, one clock"),
-    Stage(Level.L1B, "tare, flow calibration curve, moisture standardisation"),
-    Stage(Level.L2, "flow delay, antenna offset, record polygons, effective area, yield"),
-    Stage(Level.L3, "load reconciliation per machine, quality flags"),
-    Stage(Level.L4, "mass apportioning to the fixed grid, quality bands"),
-    Stage(Level.L5, "Sentinel-2 fusion via openEO: image model, gap fill", _stage_l5),
+    Stage(Level.L1A, "read harvest logs (CSV; ISOXML not yet)", stages.stage_ingest),
+    Stage(Level.L1B, "mass flow (vendor exports already at L1B)", stages.stage_mass_flow),
+    Stage(
+        Level.L2,
+        "flow delay, antenna offset, moisture standardisation, effective area, yield",
+        stages.stage_georeference,
+    ),
+    Stage(Level.L3, "quality flags, load reconciliation per machine", stages.stage_clean),
+    Stage(Level.L4, "mass apportioning to the fixed grid, quality bands", stages.stage_grid),
+    Stage(Level.L5, "Sentinel-2 fusion via openEO: image model, gap fill", stages.stage_fusion),
 ]
 
 
@@ -84,9 +78,11 @@ def run(config: FieldYearConfig, to_level: Level, from_level: Level = Level.L1A)
             stage.run(config, state)
         except Exception as exc:  # noqa: BLE001 - reported to the user and to Slack
             summary.error = f"{stage.target.value} failed: {exc}"
+            summary.outputs = state.get("outputs", {})
             return summary
         summary.completed.append(stage.target)
     summary.flagged_pct = state.get("flagged_pct")
     summary.k_factors = state.get("k_factors", {})
     summary.mass_ok = state.get("mass_ok")
+    summary.outputs = state.get("outputs", {})
     return summary

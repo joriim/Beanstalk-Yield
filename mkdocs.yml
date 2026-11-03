@@ -15,6 +15,7 @@ nav:
   - Home: index.md
   - Architecture: architecture.md
   - Design – processing levels: design/processing-levels.md
+  - Harvester chain L1A–L4: harvester-chain.md
   - L5 Sentinel-2 fusion: l5-sentinel2.md
   - QGIS plugin: qgis.md
   - Slack: slack.md

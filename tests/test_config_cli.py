@@ -20,14 +20,13 @@ def test_load_example_config(example_config_path):
     )
 
 
-def test_plan_and_unimplemented_run(example_config_path):
+def test_plan_and_missing_files(example_config_path):
     cfg = load_config(example_config_path)
     stages = plan(cfg, Level.L4)
     assert [s.target for s in stages] == [Level.L1A, Level.L1B, Level.L2, Level.L3, Level.L4]
-    assert stages[-1].implemented is False
-    assert plan(cfg, Level.L5)[-1].implemented  # L5 stage is wired
+    assert all(s.implemented for s in plan(cfg, Level.L5))
     summary = run(cfg, Level.L4)
-    assert not summary.ok and "not implemented" in summary.error
+    assert not summary.ok and "not found" in summary.error
 
 
 def test_cli_validate_and_plan(example_config_path, capsys):

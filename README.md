@@ -50,29 +50,27 @@ tests/            pytest suite
 ## Quick start
 
 ```bash
-pip install -e ".[dev]"          # core + tests; add [geo,ingest,qa,fusion,slack] as needed
-yieldsuite validate examples/field-2026.yaml
-yieldsuite plan examples/field-2026.yaml --to L5
+pip install -e ".[dev,geo]"
+yieldsuite demo demo/                     # synthetic field with a known true yield
+yieldsuite run demo/field.yaml --to L4    # harvester log -> calibrated yield grid
 pytest
 ```
 
 ## Status
 
-Pre-alpha. Implemented and tested: moisture standardisation, flow-curve fitting
-from weighed loads, georeferencing and record polygons, effective area, load
-reconciliation, record filters, mass-conserving gridding, Slack notifier, and
-the L5 Sentinel-2 step (openEO retrieval, yield-image model, regression-kriging
-gap fill; see [docs/l5-sentinel2.md](docs/l5-sentinel2.md)).
-Not yet: ingest adapters, delay neighbour pairs, local Moran's I, stage wiring
-for L1–L4 in `pipeline.py`, the other L5 corrections. `yieldsuite run` reports
-the first unimplemented stage instead of producing a partial map.
+Pre-alpha. Working end to end on vendor CSV exports:
 
-L5 can already run on an L4 raster made elsewhere:
+- **L1A–L4** ([docs/harvester-chain.md](docs/harvester-chain.md)): flow-delay
+  shift, antenna offset, moisture standardisation, effective area, quality
+  flags, load reconciliation per machine, mass-conserving grid. On the
+  synthetic field the map is within about 0.04 t/ha RMSE of the truth.
+- **L5** ([docs/l5-sentinel2.md](docs/l5-sentinel2.md)): Sentinel-2 via openEO,
+  yield-image model, regression-kriging gap fill. Not yet run against the live
+  backend.
 
-```bash
-pip install -e ".[geo,fusion]"
-yieldsuite fuse examples/field-2026.yaml --l4 my_L4.tif
-```
+Not yet: ISOXML and raw-force (L0) input, delay estimation from opposite
+passes, local Moran's I, field-boundary edge flag, the other L5 corrections
+(position shift, stripes, zones), the QGIS algorithm wiring, the server.
 
 ## Slack
 

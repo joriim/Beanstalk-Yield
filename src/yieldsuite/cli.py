@@ -40,6 +40,14 @@ def _cmd_run(args) -> int:
     summary = run(cfg, Level.parse(args.to), Level.parse(args.start))
     if summary.ok:
         print(f"done: {', '.join(lv.value for lv in summary.completed)}")
+        for name, path in summary.outputs.items():
+            print(f"  {name:10} {path}")
+        if summary.k_factors:
+            print("  k factors  " + ", ".join(f"{m}={k:.3f}" for m, k in summary.k_factors.items()))
+        if summary.flagged_pct is not None:
+            print(f"  flagged    {summary.flagged_pct:.1f} % of harvesting records")
+        if summary.mass_ok is not None:
+            print(f"  mass check {'OK' if summary.mass_ok else 'FAIL'}")
     else:
         print(f"error: {summary.error}", file=sys.stderr)
     if args.notify == "slack":
@@ -93,6 +101,15 @@ def _cmd_fuse(args) -> int:
     return 0 if summary.ok else 2
 
 
+def _cmd_demo(args) -> int:
+    from .synthetic import write_demo
+
+    path = write_demo(args.out_dir)
+    print(f"wrote synthetic field-year to {path.parent}")
+    print(f"next: yieldsuite run {path} --to L4")
+    return 0
+
+
 def _cmd_notify_test(args) -> int:
     from .notify.slack import SlackNotifier
 
@@ -135,6 +152,10 @@ def build_parser() -> argparse.ArgumentParser:
     f.add_argument("--batch", action="store_true", help="run as an openEO batch job")
     f.add_argument("--notify", choices=["slack"], help="post a run summary")
     f.set_defaults(func=_cmd_fuse)
+
+    d = sub.add_parser("demo", help="write a synthetic field-year to try the chain")
+    d.add_argument("out_dir")
+    d.set_defaults(func=_cmd_demo)
 
     n = sub.add_parser("notify-test", help="post a test message to Slack")
     n.add_argument("config", nargs="?")
