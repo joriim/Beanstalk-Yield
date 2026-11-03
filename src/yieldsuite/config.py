@@ -95,6 +95,17 @@ class WeatherConfig:
 
 
 @dataclass
+class PublicDataConfig:
+    """Endpoints of public services (verify them; they change more often than code)."""
+
+    stac_url: str = "https://stac.dataspace.copernicus.eu/v1"
+    s2_collection: str = "sentinel-2-l2a"
+    parcels_wfs_url: str | None = None  # e.g. the national parcel register's WFS
+    parcels_typename: str | None = None
+    parcel_id_column: str | None = None
+
+
+@dataclass
 class FieldYearConfig:
     field_id: str
     year: int
@@ -112,6 +123,8 @@ class FieldYearConfig:
     crop: CropSettings | None = None
     location: tuple[float, float] | None = None  # (lat, lon) WGS84; else from the grid
     weather: WeatherConfig = field(default_factory=WeatherConfig)
+    public_data: PublicDataConfig = field(default_factory=PublicDataConfig)
+    edge_buffer_m: float | None = None  # FIELD_EDGE buffer; default: one header width
 
     @property
     def sentinel2(self) -> ImagerySource | None:
@@ -207,4 +220,6 @@ def load_config(path: str | Path) -> FieldYearConfig:
         crop=crop,
         location=loc,
         weather=WeatherConfig(**(raw.get("weather") or {})),
+        public_data=PublicDataConfig(**(raw.get("public_data") or {})),
+        edge_buffer_m=raw.get("edge_buffer_m"),
     )

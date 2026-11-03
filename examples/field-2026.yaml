@@ -50,6 +50,15 @@ location: {lat: 62.79, lon: 22.84}   # optional; otherwise the centre of the L4 
 weather:
   model: era5_seamless
 
+# Public services (check the endpoints; see docs/public-data.md)
+public_data:
+  stac_url: https://stac.dataspace.copernicus.eu/v1
+  s2_collection: sentinel-2-l2a
+  # parcels_wfs_url: <parcel register WFS>
+  # parcels_typename: <parcel layer>
+  # parcel_id_column: <parcel id attribute>
+edge_buffer_m: 7.6          # FIELD_EDGE: one header width
+
 output_dir: output/demo-field-01/2026
 
 notify:

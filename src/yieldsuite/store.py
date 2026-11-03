@@ -373,6 +373,75 @@ class FarmStore:
             "sha256": entry_raw["sha256"],
         }
 
+    def public_dir(self, farm: str, field: str, year: int) -> Path:
+        d = self.year_dir(farm, field, year) / "public"
+        d.mkdir(exist_ok=True)
+        return d
+
+    def import_boundary(
+        self,
+        farm: str,
+        field: str,
+        year: int,
+        source: str | Path,
+        actor: str,
+        parcel_ids: list[str] | None = None,
+        id_column: str | None = None,
+    ) -> dict:
+        """Store the field boundary in L0 (GeoPackage) and point the config at it.
+
+        ``source`` is a vector file (e.g. parcels downloaded from the parcel
+        register or the result of get_parcels in public/parcels.geojson).
+        Without parcel ids the parcels overlapping the harvested area are used.
+        """
+        import geopandas as gpd
+
+        from .public.boundary import select_parcels
+
+        cfg = self.load_config(farm, field, year)
+        src = Path(source)
+        if not src.is_absolute():
+            src = self.year_dir(farm, field, year) / src
+        if not src.is_file():
+            raise StoreError(f"boundary source not found: {source}")
+        gdf = gpd.read_file(src)
+        near = None
+        if not parcel_ids:
+            records = (
+                self.year_dir(farm, field, year) / "output" / f"L3_{field}_{year}_records.parquet"
+            )
+            if records.exists():
+                rec = gpd.read_parquet(records)
+                near = rec[rec.area > 0].to_crs(cfg.crs).geometry.union_all().convex_hull
+        sel = select_parcels(
+            gdf, cfg.crs, parcel_ids, id_column or cfg.public_data.parcel_id_column, near
+        )
+        raw = self.year_dir(farm, field, year) / "raw" / "boundary"
+        raw.mkdir(parents=True, exist_ok=True)
+        n = 1
+        while (raw / f"boundary_{n}.gpkg").exists():
+            n += 1
+        dest = raw / f"boundary_{n}.gpkg"
+        sel.to_file(dest, driver="GPKG")
+        rel = f"raw/boundary/{dest.name}"
+        self._set_config_key(farm, field, year, "boundary", rel)
+        area_ha = float(sel.geometry.area.sum() / 1e4)
+        ids = (
+            sel[id_column or cfg.public_data.parcel_id_column].astype(str).tolist()
+            if (id_column or cfg.public_data.parcel_id_column) in sel.columns
+            else []
+        )
+        self._audit(
+            actor,
+            "import_boundary",
+            f"{farm}/{field}/{year}",
+            file=rel,
+            parcels=ids,
+            area_ha=area_ha,
+            sha256=_sha256(dest),
+        )
+        return {"boundary": rel, "parcels": ids, "n_parcels": len(sel), "area_ha": area_ha}
+
     def approve_qa(
         self, farm: str, field: str, year: int, decision: str, note: str, actor: str
     ) -> dict:

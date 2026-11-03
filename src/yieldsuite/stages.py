@@ -192,6 +192,7 @@ def stage_clean(config: FieldYearConfig, state: dict) -> None:
     flags = np.zeros(len(rec), dtype=np.int32)
     harvesting = rec["header_down"].to_numpy() & (rec["effective_area"].to_numpy() > 0)
     flags = set_flag(flags, ~harvesting, Flag.HEADER_UP)
+    n_on = int(harvesting.sum())
 
     for mid, idx in rec.groupby("machine_id").groups.items():
         idx = np.asarray(idx)
@@ -213,6 +214,25 @@ def stage_clean(config: FieldYearConfig, state: dict) -> None:
     flags = set_flag(flags, harvesting & (ratio < 0.5), Flag.SWATH)
     gq = rec["gnss_quality"].to_numpy()
     flags = set_flag(flags, harvesting & np.isfinite(gq) & (gq < 4), Flag.GNSS)
+
+    if config.boundary is not None:
+        from .public.boundary import edge_mask, load_boundary
+
+        boundary = load_boundary(config.boundary, config.crs)
+        buf = config.edge_buffer_m
+        if buf is None:
+            buf = float(np.nanmedian(rec["swath_used"].to_numpy()[harvesting])) if n_on else 0.0
+        h = rec["heading"].to_numpy()
+        half = rec["length"].to_numpy() / 2
+        cx = rec["hx"].to_numpy() - np.sin(h) * half
+        cy = rec["hy"].to_numpy() - np.cos(h) * half
+        edge = edge_mask(boundary, cx, cy, buf) & harvesting
+        flags = set_flag(flags, edge, Flag.FIELD_EDGE)
+        state["qa"]["field_edge"] = {
+            "buffer_m": buf,
+            "records": int(edge.sum()),
+            "boundary_area_ha": boundary.area / 1e4,
+        }
 
     candidates = flags == 0
     if candidates.sum() > 10:

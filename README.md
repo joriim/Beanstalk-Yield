@@ -77,6 +77,9 @@ Pre-alpha. Working end to end:
   flags, load reconciliation per machine, mass-conserving grid, flow-delay
   estimation from opposite passes (`yieldsuite delay`). On the
   synthetic field the map is within about 0.04 t/ha RMSE of the truth.
+- **Public data** ([docs/public-data.md](docs/public-data.md)): Sentinel-2
+  scene search over the field (STAC API), parcels from a configurable WFS or
+  file, field boundary in L0 and the `FIELD_EDGE` flag.
 - **Farm-data MCP server** (`yieldsuite mcp --store <root>`): list fields and
   products, QA, versioned machine profiles, immutable L0 upload, scale
   tickets, QA approvals, `run_chain` with optional Slack summary; every write
@@ -86,9 +89,8 @@ Pre-alpha. Working end to end:
   backend.
 
 Not yet: raw-force (L0) input, validation of ISOXML on real terminal files,
-local Moran's I, field-boundary edge flag, the other L5 corrections (position
-shift, stripes, zones), Sentinel-2 search and parcel/elevation/soil tools in
-the MCP server, WebODM, the QGIS algorithm wiring, the PostGIS/pgSTAC server.
+local Moran's I, the other L5 corrections (position shift, stripes, zones),
+elevation/soil/station-weather tools in the MCP server, WebODM, the QGIS algorithm wiring, the PostGIS/pgSTAC server.
 
 ## Työnkulkuohje (suomeksi)
 

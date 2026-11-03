@@ -40,7 +40,7 @@ muokata käsin.
 | QGIS | Ei tarvita |
 | WebODM | Drone-kuvien L0 on WebODM-projektin alkuperäiset kuvat; ne säilytetään myös varastossa |
 | openEO | Ei käytetä |
-| Julkinen data | Peltolohkon raja (Ruokavirasto, peltolohkorekisteri) → `boundary`. MCP: `get_parcel` **[suunnitelma]**; nyt: `upload_raw` kind `boundary` |
+| Julkinen data | Peltolohkon raja: MCP `get_parcels` (peltolohkorekisterin WFS, osoite asetuksissa) tai oma tiedosto → `import_boundary` valitsee lohkot tunnuksen tai puintialueen mukaan ja tallentaa rajan L0:ksi |
 
 Tarkistuslista: kuvien ja lokien tarkistussumma, koneen tunnus, sadonkorjuupäivä.
 
@@ -92,7 +92,7 @@ Tarkistuslista: kuvien ja lokien tarkistussumma, koneen tunnus, sadonkorjuupäiv
 | QGIS – lippujen tarkastus | Tyylitä `flags` luokiteltuna (0 = puhdas). Tarkista, että liputettu osuus on järkevä (tyypillisesti 20–40 %, synteettisellä pellolla ~10 %) ja että poikkeamat eivät kasaudu yhteen kohtaan (silloin kyse voi olla todellisesta ilmiöstä) |
 | QA | `L4_..._qa.json`: k-kertoimet, lippujen määrät, varoitukset. Slack-viesti näyttää samat luvut |
 | Päätös | Hyväksy k tai pyydä lisää vaakalappuja. MCP: `approve_qa` (approved / rejected / needs_data); Slack-painike myöhemmin |
-| Julkinen data | Peltolohkon raja reunapuskurin liputukseen (`FIELD_EDGE`) **[suunnitelma]** |
+| Julkinen data | Kun lohkoraja on tuotu, tietueet, joiden keskipiste on reunapuskurissa (oletus yksi leikkuuleveys, `edge_buffer_m`) tai rajan ulkopuolella, liputetaan `FIELD_EDGE`. QA kertoo määrän ja rajan pinta-alan |
 
 ### L4 – Ruudukko
 
@@ -108,7 +108,7 @@ Tarkistuslista: kuvien ja lokien tarkistussumma, koneen tunnus, sadonkorjuupäiv
 
 | Mitä | Miten |
 |---|---|
-| Haku | Ensin katsotaan, mitä pilvettömiä päiviä on: Copernicus Data Space STAC -haku lohkon alueelle ja kasvukaudelle. MCP: `search_sentinel2` **[suunnitelma]**; QGISissä STAC-selain (QGIS 3.40+ tai STAC API Browser -lisäosa) |
+| Haku | Ensin katsotaan, mitä pilvettömiä päiviä on: Copernicus Data Space STAC -haku lohkon alueelle ja kasvukaudelle. MCP: `search_sentinel2` tai `yieldsuite s2-search` (päivät ja koko ruudun pilvisyys, vähiten pilvinen per päivä); QGISissä STAC-selain (QGIS 3.40+ tai STAC API Browser -lisäosa) |
 | Laskenta | `yieldsuite fuse lohko.yaml --l4 L4.tif` tai `run --to L5`. openEO-palvelimella: pilvimaski SCL:llä, NDVI/NDRE/CIre/NDMI pikseleittäin, keskiarvo ruuduittain. Paikallisesti: malli ja aukkojen täyttö |
 | QGIS | Vertaa `prediction`- ja `yield`-kaistoja; `source` = 2 näyttää täytetyt solut; `sigma` niiden epävarmuuden |
 | Tunnukset | Ilmainen Copernicus Data Space -tili; ensimmäisellä ajolla kirjautuminen selaimessa |
@@ -249,9 +249,10 @@ aja uudelleen"*, *"Hyväksy QA, kerroin on vaakalappujen mukainen."*
 | Työkalu | Lähde | Käyttö |
 |---|---|---|
 | `get_weather(farm, field, year, refresh?)` **(toteutettu)** | ERA5 / ERA5-Land, Open-Meteo-arkisto | PAR, kirkkausindeksi, lämpösumma, kasvuvaiheet, vesitase, RUE |
-| `search_sentinel2(field_id, start, end, max_cloud)` **[suunnitelma]** | Copernicus Data Space STAC | Pilvettömät päivät ennen openEO-ajoa |
+| `search_sentinel2(farm, field, year, start?, end?, max_cloud?)` **(toteutettu)** | STAC API, oletus Copernicus Data Space | Pilvettömät päivät ennen openEO-ajoa |
 | `fetch_s2_features(field_id, year)` | openEO (toteutettu ytimessä) | L5-piirteet |
-| `get_parcel(parcel_id \| bbox)` **[suunnitelma]** | Ruokavirasto, peltolohkorekisteri (avoin data, WFS) | Lohkorajat |
+| `get_parcels(farm, field, year)` **(toteutettu)** | Peltolohkorekisterin WFS (osoite `public_data`-asetuksissa) | Lohkoehdokkaat ja pinta-alat, tallennus `public/parcels.geojson` |
+| `import_boundary(farm, field, year, source_path, parcel_ids?)` **(toteutettu)** | Tiedosto tai `get_parcels`-tulos | Lohkoraja L0:ksi, `FIELD_EDGE`-liputus |
 | `get_elevation(field_id)` **[suunnitelma]** | Maanmittauslaitos, korkeusmalli 2 m (avoin, API-avain) | Lohkot, maaston kovariaatit |
 | `get_soil_map(field_id)` **[suunnitelma]** | GTK, maaperäkartta | Lohkot |
 | `get_station_weather(field_id)` **[suunnitelma]** | Ilmatieteen laitos, avoin data | Lähiaseman havainnot ERA5:n tarkistukseen |
@@ -276,7 +277,7 @@ toteutusvaiheessa; ne muuttuvat useammin kuin tämä ohje.
 2. ~~`run_chain` + Slack-yhteenveto + `update_machine_profile`~~ – tehty.
 3. ~~Monimuotoinen sato- ja konedatan tuonti, `inspect_harvest_file`, `register_harvest_log`~~ – tehty.
 4. ~~Lohkokohtainen sää (ERA5), PAR, lämpösumma, RUE, `get_weather`~~ – tehty.
-5. `search_sentinel2` ja `get_parcel`.
+5. ~~Viiveen arviointi, `search_sentinel2`, `get_parcels`, `import_boundary`, `FIELD_EDGE`~~ – tehty.
 6. WebODM-työkalut ja drone-yhdenmukaistus L5:een.
 7. MML-, GTK- ja IL-asemahaut sekä SARAH-3-säteily.
 8. QGIS-lisäosan algoritmit kutsumaan samaa ydintä (ja tarvittaessa MCP:tä).

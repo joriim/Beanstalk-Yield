@@ -174,7 +174,96 @@ def build_server(store: FarmStore, actor: str | None = None):
             "products": [f"{farm}/{field}/{year}/{Path(p).name}" for p in files.values()],
         }
 
+    def _grid(farm, field, year):
+        from .l4.io import read_bands
+
+        l4 = store.year_dir(farm, field, year) / "output" / f"L4_{field}_{year}.tif"
+        return read_bands(l4)[1] if l4.exists() else None
+
+    @server.tool(annotations=public)
+    def search_sentinel2(
+        farm: str,
+        field: str,
+        year: int,
+        start: str | None = None,
+        end: str | None = None,
+        max_cloud: float = 60.0,
+    ) -> dict:
+        """List Sentinel-2 L2A scenes over the field (STAC API, default Copernicus Data
+        Space) with date and scene cloud cover, least cloudy per day. Use it to judge
+        whether a season has enough clear dates before running L5. Scene cloud cover is
+        for the whole tile; the field-level cloud mask is applied later in openEO."""
+        from .public.field import field_bbox_wgs84
+        from .public.stac import search_sentinel2 as search
+
+        cfg = guard(store.load_config, farm, field, year)
+        bbox = guard(field_bbox_wgs84, cfg, _grid(farm, field, year))
+        try:
+            return search(
+                bbox,
+                start or f"{year}-04-15",
+                end or f"{year}-09-15",
+                max_cloud,
+                cfg.public_data.stac_url,
+                cfg.public_data.s2_collection,
+            )
+        except OSError as exc:
+            raise ToolError(f"STAC search failed ({cfg.public_data.stac_url}): {exc}") from exc
+
+    @server.tool(annotations=public)
+    def get_parcels(farm: str, field: str, year: int) -> dict:
+        """Fetch field parcels around the field from the configured parcel WFS
+        (public_data.parcels_wfs_url / parcels_typename), save them to
+        public/parcels.geojson and list their ids and areas. Then call import_boundary
+        with the chosen parcel ids."""
+        import json as _json
+
+        from .public.field import field_bbox_wgs84
+        from .public.wfs import get_features
+
+        cfg = guard(store.load_config, farm, field, year)
+        pd_cfg = cfg.public_data
+        if not (pd_cfg.parcels_wfs_url and pd_cfg.parcels_typename):
+            raise ToolError("set public_data.parcels_wfs_url and parcels_typename in field.yaml")
+        bbox = guard(field_bbox_wgs84, cfg, _grid(farm, field, year))
+        try:
+            fc = get_features(pd_cfg.parcels_wfs_url, pd_cfg.parcels_typename, bbox)
+        except (OSError, ValueError) as exc:
+            raise ToolError(f"parcel WFS failed: {exc}") from exc
+        path = store.public_dir(farm, field, year) / "parcels.geojson"
+        path.write_text(_json.dumps(fc))
+        import geopandas as gpd
+
+        gdf = gpd.GeoDataFrame.from_features(fc["features"], crs="EPSG:4326").to_crs(cfg.crs)
+        idc = pd_cfg.parcel_id_column
+        parcels = [
+            {
+                "id": str(r[idc]) if idc in gdf.columns else str(i),
+                "area_ha": round(r.geometry.area / 1e4, 2),
+            }
+            for i, r in gdf.iterrows()
+        ]
+        store._audit(actor, "get_parcels", f"{farm}/{field}/{year}", n=len(parcels))
+        return {"saved": "public/parcels.geojson", "parcels": parcels}
+
     # --- write ---------------------------------------------------------------------
+
+    @server.tool(annotations=write)
+    def import_boundary(
+        farm: str,
+        field: str,
+        year: int,
+        source_path: str,
+        parcel_ids: list[str] | None = None,
+        id_column: str | None = None,
+    ) -> dict:
+        """Set the field boundary from a vector file (absolute path, or relative to the
+        field-year folder such as public/parcels.geojson). Without parcel_ids the
+        parcels overlapping the harvested area are chosen. Enables the FIELD_EDGE flag
+        on the next run_chain."""
+        return guard(
+            store.import_boundary, farm, field, year, source_path, actor, parcel_ids, id_column
+        )
 
     @server.tool(annotations=write)
     def register_harvest_log(

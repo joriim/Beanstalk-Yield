@@ -190,6 +190,34 @@ def _cmd_delay(args) -> int:
     return 0
 
 
+def _cmd_s2_search(args) -> int:
+    from .l4.io import read_bands
+    from .public.field import field_bbox_wgs84
+    from .public.stac import search_sentinel2
+
+    cfg = load_config(args.config)
+    grid = read_bands(args.l4)[1] if args.l4 else None
+    try:
+        res = search_sentinel2(
+            field_bbox_wgs84(cfg, grid),
+            args.start or f"{cfg.year}-04-15",
+            args.end or f"{cfg.year}-09-15",
+            args.max_cloud,
+            cfg.public_data.stac_url,
+            cfg.public_data.s2_collection,
+        )
+    except (OSError, ValueError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    print(
+        f"{res['n_below_max_cloud']}/{res['n_scenes']} scenes <= {args.max_cloud} % cloud; "
+        f"{len(res['dates'])} dates"
+    )
+    for d in res["dates"]:
+        print(f"  {d['date']}  {d['cloud_cover']:5.1f} %  {d['tile']}")
+    return 0
+
+
 def _cmd_notify_test(args) -> int:
     from .notify.slack import SlackNotifier
 
@@ -257,6 +285,14 @@ def build_parser() -> argparse.ArgumentParser:
     dl = sub.add_parser("delay", help="estimate the flow delay from opposite passes")
     dl.add_argument("config")
     dl.set_defaults(func=_cmd_delay)
+
+    s2 = sub.add_parser("s2-search", help="list Sentinel-2 scenes over the field (STAC)")
+    s2.add_argument("config")
+    s2.add_argument("--l4", help="L4 raster to locate the field without boundary/location")
+    s2.add_argument("--start")
+    s2.add_argument("--end")
+    s2.add_argument("--max-cloud", type=float, default=60.0)
+    s2.set_defaults(func=_cmd_s2_search)
 
     w = sub.add_parser("weather", help="field weather (ERA5 via Open-Meteo) and agroclimate")
     w.add_argument("config")
