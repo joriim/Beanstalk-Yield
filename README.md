@@ -85,10 +85,10 @@ Pre-alpha. Working end to end:
   yield-image model, regression-kriging gap fill. Not yet run against the live
   backend.
 
-Not yet: raw-force (L0) input, validation of ISOXML on real terminal files, delay estimation from opposite
-passes, local Moran's I, field-boundary edge flag, the other L5 corrections
-(position shift, stripes, zones), public-data tools in the MCP server,
-WebODM, the QGIS algorithm wiring, the PostGIS/pgSTAC server.
+Not yet: raw-force (L0) input, validation of ISOXML on real terminal files,
+local Moran's I, field-boundary edge flag, the other L5 corrections (position
+shift, stripes, zones), Sentinel-2 search and parcel/elevation/soil tools in
+the MCP server, WebODM, the QGIS algorithm wiring, the PostGIS/pgSTAC server.
 
 ## Työnkulkuohje (suomeksi)
 
