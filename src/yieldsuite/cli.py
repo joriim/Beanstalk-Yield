@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+from pathlib import Path
 
 from . import __version__
 from .config import SlackSettings, load_config
@@ -218,6 +219,52 @@ def _cmd_s2_search(args) -> int:
     return 0
 
 
+def _cmd_zones(args) -> int:
+    import json
+
+    from .l4.io import read_bands
+    from .zones import make_zones, place, union_grid, write_zones
+
+    layers, grids, crs = [], [], args.crs
+    for p in args.layers:
+        b, g, c = read_bands(p)
+        layers.append(b["yield"])
+        grids.append(g)
+        crs = crs or c
+    covs = []
+    for p in args.covariate or []:
+        b, g, _ = read_bands(p, require_yield=False)
+        covs.append((next(iter(b.values())), g))
+        grids.append(g)
+    target = union_grid(grids)
+    try:
+        res = make_zones(
+            [place(a, g, target) for a, g in zip(layers, grids, strict=False)],
+            target,
+            [place(a, g, target) for a, g in covs],
+            k_range=range(2, args.k_max + 1),
+            names=[Path(p).stem for p in args.layers],
+        )
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    files = write_zones(res, target, crs, args.out, args.stem)
+    s = res.summary
+    print(
+        f"{s['k']} zones from {len(layers)} years ({s['spatial_components']} spatial PCs); "
+        f"zones explain {100 * (s['variance_explained_by_zones'] or 0):.0f} % of the "
+        "variance of mean relative yield"
+    )
+    for z in s["zones"]:
+        print(f"  zone {z['zone']}: {z['area_ha']:.2f} ha, {z['mean_relative_yield_pct']:.0f} %")
+    print(
+        "  k scan: "
+        + ", ".join(f"k={r['k']} FPI {r['fpi']:.3f} NCE {r['nce']:.3f}" for r in s["k_scan"])
+    )
+    print(json.dumps(files, indent=2))
+    return 0
+
+
 def _cmd_notify_test(args) -> int:
     from .notify.slack import SlackNotifier
 
@@ -293,6 +340,15 @@ def build_parser() -> argparse.ArgumentParser:
     s2.add_argument("--end")
     s2.add_argument("--max-cloud", type=float, default=60.0)
     s2.set_defaults(func=_cmd_s2_search)
+
+    z = sub.add_parser("zones", help="management zones from multi-year yield maps (KM-sPC)")
+    z.add_argument("layers", nargs="+", help="L4/L5 GeoTIFFs, one per year, same grid origin")
+    z.add_argument("--covariate", action="append", help="extra raster (elevation, ECa, ...)")
+    z.add_argument("--out", default="zones")
+    z.add_argument("--stem", default="zones")
+    z.add_argument("--k-max", type=int, default=6)
+    z.add_argument("--crs", help="CRS if the rasters do not carry one")
+    z.set_defaults(func=_cmd_zones)
 
     w = sub.add_parser("weather", help="field weather (ERA5 via Open-Meteo) and agroclimate")
     w.add_argument("config")

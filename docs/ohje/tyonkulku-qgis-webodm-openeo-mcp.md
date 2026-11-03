@@ -146,13 +146,16 @@ kynnyslämpötila, korjuuindeksi, kasvuvaiheiden lämpösummat), valinnainen
 `location:` ja `weather:` (malli, tunneittaiset lisämuuttujat). Ks.
 `docs/weather-agroclimate.md`.
 
-### Lohkot (monivuotinen) – [suunnitelma]
+### Lohkot (monivuotinen) – toteutettu
 
 | Mitä | Miten |
 |---|---|
-| Laskenta | Usean vuoden L5-kartat suhteelliseksi sadoksi, pinottuna kuvahistorian, korkeusmallin ja maaperätiedon kanssa → KM-sPC-klusterointi |
-| Julkinen data | Maanmittauslaitoksen korkeusmalli 2 m (rinne, kosteusindeksi), GTK:n maaperäkartta. Vuosien vertailuun ERA5-sääyhteenvedot (lämpösumma, PAR, vesitase, RUE): MCP `get_weather` (toteutettu). `get_elevation`, `get_soil_map` **[suunnitelma]** |
-| QGIS | Lohkorajojen viimeistely ja yhdistely, levityskarttojen pohja |
+| Laskenta | `yieldsuite zones L5_2023.tif L5_2024.tif ... [--covariate korkeus.tif]` tai MCP `make_zones(farm, field)` (käyttää kunkin vuoden L5-karttaa, muuten L4:ää). Vuodet suhteelliseksi sadoksi → spatiaalinen PCA (MULTISPATI) → fuzzy k-means; lohkojen määrä valitaan FPI- ja NCE-indekseillä (KM-sPC, Córdoba ym.) |
+| Vakaus | Solukohtainen luokka: korkea ja vakaa, matala ja vakaa, epävakaa (vuosien välinen CV ≥ 15 %) |
+| Tulokset | GeoTIFF (lohko, jäsenyysaste, vakaus, suhteellinen sato ja sen CV), lohkopolygonit GeoPackagena, yhteenveto JSON:na |
+| Julkinen data | Kovariaatit: Maanmittauslaitoksen korkeusmalli, GTK:n maaperäkartta (`get_elevation`, `get_soil_map` **[suunnitelma]**; nyt omana rasterina samassa ruudukossa). Vuosien vertailuun ERA5-yhteenvedot (`get_weather`) |
+| QGIS | Avaa lohkopolygonit (`zones_*.gpkg`); viimeistele rajat ja yhdistä pienet alueet; levityskarttojen pohja |
+| Rajoitus | Synteettisellä aineistolla 3 oikeaa lohkoa löytyy 2–5 vuoden datasta; kahdella vuodella epävakaa alue voi muodostaa oman lohkonsa. Lohko kertoo, missä sato on ollut toistuvasti korkea tai matala; erilainen hoito on agronominen päätös |
 
 ## 3. Tiladata-MCP-palvelin
 
@@ -287,5 +290,6 @@ toteutusvaiheessa; ne muuttuvat useammin kuin tämä ohje.
 4. ~~Lohkokohtainen sää (ERA5), PAR, lämpösumma, RUE, `get_weather`~~ – tehty.
 5. ~~Viiveen arviointi, `search_sentinel2`, `get_parcels`, `import_boundary`, `FIELD_EDGE`~~ – tehty.
 6. WebODM-työkalut ja drone-yhdenmukaistus L5:een.
-7. MML-, GTK- ja IL-asemahaut sekä SARAH-3-säteily.
-8. QGIS-lisäosan algoritmit kutsumaan samaa ydintä (ja tarvittaessa MCP:tä).
+7. ~~Kaistaraidat, jäännössiirtymä, lohkojako~~ – tehty.
+8. MML-, GTK- ja IL-asemahaut sekä SARAH-3-säteily.
+9. QGIS-lisäosan algoritmit kutsumaan samaa ydintä (ja tarvittaessa MCP:tä).

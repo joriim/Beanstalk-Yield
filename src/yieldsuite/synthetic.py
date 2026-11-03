@@ -175,3 +175,39 @@ def image_features(
             recs.append((cid, d, "NDVI", nd[cid]))
             recs.append((cid, d, "NDRE", 0.6 * nd[cid]))
     return pd.DataFrame.from_records(recs, columns=["cell", "date", "index", "value"])
+
+
+def multi_year_layers(
+    n_years: int = 5,
+    seed: int = 0,
+    nx: int = 40,
+    ny: int = 30,
+    res: float = 20.0,
+    unstable_patch: bool = True,
+):
+    """Synthetic yield maps of several years with known management zones.
+
+    Three zones (relative productivity 80 / 100 / 120 %) plus an unstable patch
+    whose yield swings +-25 % between years. Each year has its own level, a
+    smooth year-specific pattern (4 %) and cell noise (5 %).
+    Returns (grid, layers, true_zone (1..3), unstable_mask).
+    """
+    from .l4.grid import Grid
+
+    rng = np.random.default_rng(seed)
+    grid = Grid(X0, Y0 + ny * res, res, nx, ny)
+    rows, cols = np.mgrid[0:ny, 0:nx]
+    u, v = cols / nx, rows / ny
+    s = np.sin(2.2 * np.pi * u) + 0.8 * np.cos(1.6 * np.pi * v)
+    zone = np.digitize(s, np.quantile(s, [1 / 3, 2 / 3])) + 1
+    level = np.choose(zone - 1, [0.8, 1.0, 1.2])
+    unstable = (u > 0.75) & (v < 0.3) if unstable_patch else np.zeros(zone.shape, bool)
+    layers = []
+    for year in range(n_years):
+        mean = rng.uniform(5, 9)
+        phase = rng.uniform(0, 2 * np.pi)
+        pattern = 1 + 0.04 * np.sin(2 * np.pi * (u + v) + phase)
+        swing = np.where(unstable, 1 + 0.25 * (-1) ** year, 1.0)
+        y = mean * level * pattern * swing * (1 + rng.normal(0, 0.05, zone.shape))
+        layers.append(y)
+    return grid, layers, zone, unstable

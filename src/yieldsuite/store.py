@@ -116,6 +116,11 @@ class FarmStore:
         """Field-year config with machine profiles replaced by the store's latest versions."""
         ydir = self.year_dir(farm, field, year)
         cfg = load_config(ydir / "field.yaml")
+        if cfg.year != int(year) or cfg.field_id != field:
+            raise StoreError(
+                f"{farm}/{field}/{year}/field.yaml says field {cfg.field_id!r} year {cfg.year}; "
+                "fix the file so folder and config agree"
+            )
         cfg.output_dir = ydir / "output"
         for mid in {log.machine_id for log in cfg.harvest_logs} | set(cfg.machines):
             versions = self._machine_versions(farm, mid)
@@ -441,6 +446,66 @@ class FarmStore:
             sha256=_sha256(dest),
         )
         return {"boundary": rel, "parcels": ids, "n_parcels": len(sel), "area_ha": area_ha}
+
+    def make_zones(
+        self,
+        farm: str,
+        field: str,
+        actor: str,
+        years: list[int] | None = None,
+        covariates: list[str] | None = None,
+        k_max: int = 6,
+    ) -> dict:
+        """Zones from all (or the given) years of this field: L5 maps where they
+        exist, else L4. Written to <farm>/<field>/zones/."""
+        from .l4.io import read_bands
+        from .zones import make_zones, place, union_grid, write_zones
+
+        fdir = self.farm_dir(farm) / _check_id(field, "field id")
+        available = next((f["years"] for f in self.list_fields(farm) if f["field_id"] == field), [])
+        years = sorted(years or available)
+        layers, grids, names, used = [], [], [], {}
+        crs = None
+        for y in years:
+            out = self.year_dir(farm, field, y) / "output"
+            for level in ("L5", "L4"):
+                p = out / f"{level}_{field}_{y}.tif"
+                if p.exists():
+                    bands, grid, crs = read_bands(p)
+                    layers.append(bands["yield"])
+                    grids.append(grid)
+                    names.append(f"{y}_{level}")
+                    used[y] = level
+                    break
+        if len(layers) < 2:
+            raise StoreError(f"zones need yield maps of at least two years; found {sorted(used)}")
+        cov_arrays = []
+        for c in covariates or []:
+            cp = Path(c) if Path(c).is_absolute() else fdir / c
+            if not cp.is_file():
+                raise StoreError(f"covariate not found: {c}")
+            b, g, _ = read_bands(cp, require_yield=False)
+            cov_arrays.append((next(iter(b.values())), g))
+            grids.append(g)
+        target = union_grid(grids)
+        placed = [place(a, g, target) for a, g in zip(layers, grids, strict=False)]
+        covs = [place(a, g, target) for a, g in cov_arrays]
+        res = make_zones(placed, target, covs, k_range=range(2, k_max + 1), names=names)
+        stem = f"zones_{field}_{years[0]}-{years[-1]}"
+        files = write_zones(res, target, crs, fdir / "zones", stem)
+        self._audit(
+            actor,
+            "make_zones",
+            f"{farm}/{field}",
+            years=list(used),
+            k=res.k,
+            covariates=covariates or [],
+        )
+        return {
+            "files": {k: str(Path(v).relative_to(self.root)) for k, v in files.items()},
+            "years_used": used,
+            "summary": res.summary,
+        }
 
     def approve_qa(
         self, farm: str, field: str, year: int, decision: str, note: str, actor: str

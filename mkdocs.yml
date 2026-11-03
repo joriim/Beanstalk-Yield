@@ -19,6 +19,7 @@ nav:
   - L5 Sentinel-2 fusion: l5-sentinel2.md
   - Weather and agroclimate: weather-agroclimate.md
   - Public data and boundary: public-data.md
+  - Management zones: zones.md
   - QGIS plugin: qgis.md
   - Ohje – työnkulku ja MCP: ohje/tyonkulku-qgis-webodm-openeo-mcp.md
   - Slack: slack.md

@@ -318,6 +318,22 @@ def build_server(store: FarmStore, actor: str | None = None):
         )
 
     @server.tool(annotations=write)
+    def make_zones(
+        farm: str,
+        field: str,
+        years: list[int] | None = None,
+        covariates: list[str] | None = None,
+        k_max: int = 6,
+    ) -> dict:
+        """Management zones from the field's multi-year yield maps (L5 where available,
+        else L4) plus optional covariate rasters (paths relative to the field folder):
+        relative yield per year, MULTISPATI-PCA, fuzzy k-means with k chosen by FPI/NCE,
+        and temporal stability classes. Writes GeoTIFF, GeoPackage and a summary."""
+        result = guard(store.make_zones, farm, field, actor, years, covariates, k_max)
+        result["summary"].pop("spatial_eigenvalues", None)
+        return result
+
+    @server.tool(annotations=write)
     def approve_qa(farm: str, field: str, year: int, decision: str, note: str = "") -> dict:
         """Record a human QA decision: approved, rejected or needs_data."""
         return guard(store.approve_qa, farm, field, year, decision, note, actor)

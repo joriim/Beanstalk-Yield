@@ -80,6 +80,9 @@ Pre-alpha. Working end to end:
 - **Public data** ([docs/public-data.md](docs/public-data.md)): Sentinel-2
   scene search over the field (STAC API), parcels from a configurable WFS or
   file, field boundary in L0 and the `FIELD_EDGE` flag.
+- **Management zones** ([docs/zones.md](docs/zones.md)): multi-year relative
+  yield + covariates, MULTISPATI-PCA, fuzzy k-means with k chosen by FPI/NCE,
+  stability classes (`yieldsuite zones`, MCP `make_zones`).
 - **Farm-data MCP server** (`yieldsuite mcp --store <root>`): list fields and
   products, QA, versioned machine profiles, immutable L0 upload, scale
   tickets, QA approvals, `run_chain` with optional Slack summary; every write
@@ -89,7 +92,7 @@ Pre-alpha. Working end to end:
   residual-shift check of the delay. Not yet run against the live backend.
 
 Not yet: raw-force (L0) input, validation of ISOXML on real terminal files,
-local Moran's I, zones,
+local Moran's I,
 elevation/soil/station-weather tools in the MCP server, WebODM, the QGIS algorithm wiring, the PostGIS/pgSTAC server.
 
 ## Työnkulkuohje (suomeksi)
