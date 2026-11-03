@@ -24,4 +24,5 @@ nav:
   - QGIS plugin: qgis.md
   - Ohje – työnkulku ja MCP: ohje/tyonkulku-qgis-webodm-openeo-mcp.md
   - Suunnitelma – datalähteet: ohje/datalahteet-suunnitelma.md
+  - Synteettinen testipelto: ohje/synteettinen-pelto.md
   - Slack: slack.md
