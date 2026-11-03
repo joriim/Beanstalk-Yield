@@ -85,11 +85,11 @@ Pre-alpha. Working end to end:
   tickets, QA approvals, `run_chain` with optional Slack summary; every write
   goes to an audit log. Setup in the Finnish guide below.
 - **L5** ([docs/l5-sentinel2.md](docs/l5-sentinel2.md)): Sentinel-2 via openEO,
-  yield-image model, regression-kriging gap fill. Not yet run against the live
-  backend.
+  yield-image model, regression-kriging gap fill, pass-stripe levelling and a
+  residual-shift check of the delay. Not yet run against the live backend.
 
 Not yet: raw-force (L0) input, validation of ISOXML on real terminal files,
-local Moran's I, the other L5 corrections (position shift, stripes, zones),
+local Moran's I, zones,
 elevation/soil/station-weather tools in the MCP server, WebODM, the QGIS algorithm wiring, the PostGIS/pgSTAC server.
 
 ## Työnkulkuohje (suomeksi)

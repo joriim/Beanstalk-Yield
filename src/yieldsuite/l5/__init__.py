@@ -4,10 +4,11 @@ Implemented: Sentinel-2 features via openEO (``sentinel2``), yield-image model
 (``model``), regression-kriging gap fill (``gapfill``), and ``fuse`` which
 chains them.
 
+With L3 records (a chain run): ``residual_shift`` (check of the delay against
+the image) and ``level_pass_stripes`` (random pass effect, field total kept).
+
 Planned (see docs/design/processing-levels.md, "L4 -> L5"):
 
-- ``residual_shift``: along-track shift maximising corr(Y(x), V(x + delta)).
-- ``level_pass_stripes``: log Y_i = log f(V) + b_p + e, renormalised to the field total.
 - ``zones``: multi-year relative yield + imagery -> KM-sPC zones.
 - drone orthomosaic features (harmonised to Sentinel-2 reflectance).
 
@@ -21,6 +22,8 @@ from .fuse import FusionResult, fuse
 from .gapfill import gap_fill
 from .model import YieldImageModel, fit_yield_image_model
 from .sentinel2 import S2Request
+from .shift import residual_shift
+from .stripes import level_pass_stripes
 
 
 def _todo(name: str):
@@ -31,8 +34,6 @@ def _todo(name: str):
     return fn
 
 
-residual_shift = _todo("residual_shift")
-level_pass_stripes = _todo("level_pass_stripes")
 zones = _todo("zones")
 
 __all__ = [

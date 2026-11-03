@@ -40,7 +40,10 @@ class SyntheticField:
     true_mass_ref_kg: float
 
 
-def make_field(seed: int = 0, noise: float = 0.03, n_spikes: int = 15) -> SyntheticField:
+def make_field(
+    seed: int = 0, noise: float = 0.03, n_spikes: int = 15, pass_gain_sd: float = 0.0
+) -> SyntheticField:
+    """``pass_gain_sd`` adds a multiplicative monitor gain per pass (stripes)."""
     rng = np.random.default_rng(seed)
     n_pass = int(FIELD_W // HEADER_W)
     rows = []
@@ -54,6 +57,7 @@ def make_field(seed: int = 0, noise: float = 0.03, n_spikes: int = 15) -> Synthe
         y_start = Y0 if north else Y0 + FIELD_H
         n_cut = int(FIELD_H // SPEED)  # stay inside the field
         n_tail = int(TAU_D) + 4  # keep driving with header up while the elevator empties
+        pass_gain = float(np.exp(rng.normal(0, pass_gain_sd))) if pass_gain_sd else 1.0
         cut_hist = []  # wet mass flow cut each second, at monitor gain
         for k in range(n_cut + n_tail):
             hy = y_start + sign * SPEED * (k + 1)  # header centre at end of second k
@@ -67,7 +71,7 @@ def make_field(seed: int = 0, noise: float = 0.03, n_spikes: int = 15) -> Synthe
                 wet = 0.0
             cut_hist.append(wet)
             delayed = cut_hist[k - int(TAU_D)] if k >= TAU_D else 0.0
-            logged = delayed * MONITOR_GAIN * (1 + rng.normal(0, noise))
+            logged = delayed * MONITOR_GAIN * pass_gain * (1 + rng.normal(0, noise))
             rows.append(
                 {
                     "Time": t + k,
@@ -101,11 +105,11 @@ def make_field(seed: int = 0, noise: float = 0.03, n_spikes: int = 15) -> Synthe
     return SyntheticField(log, tickets, true_mass)
 
 
-def write_demo(out_dir: str | Path, seed: int = 0) -> Path:
+def write_demo(out_dir: str | Path, seed: int = 0, **field_kwargs) -> Path:
     """Write log, scale tickets and a field-year config; return the config path."""
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
-    f = make_field(seed)
+    f = make_field(seed, **field_kwargs)
     f.log.to_csv(out / "combine-a_2026.csv", index=False)
     f.tickets.to_csv(out / "scale_tickets.csv", index=False)
     config = {
@@ -149,3 +153,25 @@ def write_demo(out_dir: str | Path, seed: int = 0) -> Path:
     path = out / "field.yaml"
     path.write_text(yaml.safe_dump(config, sort_keys=False))
     return path
+
+
+def image_features(
+    grid, dates=("2026-06-10", "2026-06-30", "2026-07-15"), noise: float = 0.01, seed: int = 0
+):
+    """Synthetic Sentinel-2 feature table (long format) whose NDVI follows the true yield.
+
+    Pixel noise only; no passes, no delay: the image is the independent spatial
+    reference the L5 corrections need.
+    """
+    rng = np.random.default_rng(seed)
+    rows, cols = np.divmod(np.arange(grid.ny * grid.nx), grid.nx)
+    x = grid.xmin + (cols + 0.5) * grid.resolution
+    y = grid.ymax - (rows + 0.5) * grid.resolution
+    base = 0.2 + 0.06 * true_yield(x, y)
+    recs = []
+    for k, d in enumerate(dates):
+        nd = base + 0.02 * k + rng.normal(0, noise, base.size)
+        for cid in range(base.size):
+            recs.append((cid, d, "NDVI", nd[cid]))
+            recs.append((cid, d, "NDRE", 0.6 * nd[cid]))
+    return pd.DataFrame.from_records(recs, columns=["cell", "date", "index", "value"])

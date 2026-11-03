@@ -45,6 +45,8 @@ def run_sentinel2_fusion(
     batch: bool = False,
     connection=None,
     write_raster: bool = True,
+    records=None,
+    polygons=None,
 ) -> L5Outputs:
     request = s2_request(config)
     out = Path(out_dir or config.output_dir)
@@ -59,6 +61,14 @@ def run_sentinel2_fusion(
             grid, config.crs, request, connection=connection, workdir=out, batch=batch
         )
         save_features(features, features_path)
+
+    corrections = _record_corrections(
+        l4, grid, features, records, polygons, method, config.sentinel2.min_valid_share
+    )
+    if corrections.get("l4") is not None:
+        l4 = corrections.pop("l4")
+    else:
+        corrections.pop("l4", None)
 
     result = fuse(
         l4,
@@ -75,6 +85,7 @@ def run_sentinel2_fusion(
         crs=config.crs,
         product_class=config.product_class.value,
     )
+    result.model_card["record_corrections"] = corrections
     card_path = out / f"{stem}_model_card.json"
     card_path.write_text(json.dumps(result.model_card, indent=2, default=str))
 
@@ -98,3 +109,46 @@ def run_sentinel2_fusion(
 
         raster = write_cog(result.bands, grid, config.crs, out / f"{stem}.tif", names=L5_BANDS)
     return L5Outputs(result, raster, card_path, features_path)
+
+
+def _record_corrections(l4, grid, features, records, polygons, method, min_valid_share) -> dict:
+    """Corrections 1-2 of the design document, when L3 records are available."""
+    if records is None or polygons is None:
+        return {
+            "applied": False,
+            "reason": "L3 records not available (L5 run from an L4 raster only)",
+        }
+    import numpy as np
+
+    from ..l4.grid import apportion_mass, check_mass_conservation
+    from .records import RecordView
+    from .shift import residual_shift
+    from .stripes import level_pass_stripes
+
+    # Image prediction f(V) as the spatial reference: fitted on the L4 grid,
+    # without kriging (the residual field would carry the stripes back in).
+    prelim = fuse(
+        l4, grid, features, method=method, residual="none", min_valid_share=min_valid_share
+    )
+    reference = prelim.bands["prediction"]
+    view = RecordView.from_records(records)
+    out: dict = {"applied": True, "residual_shift": residual_shift(view, grid, reference)}
+    corrected, stripes = level_pass_stripes(view, grid, reference)
+    out["pass_stripes"] = stripes
+    if stripes.get("applied"):
+        use = view.area > 0
+        bands = apportion_mass(
+            np.asarray(polygons, dtype=object)[use],
+            corrected[use],
+            grid,
+            flags=view.flags[use],
+            pass_ids=view.pass_key[use],
+        )
+        clean_total = float(corrected[use & (view.flags == 0)].sum())
+        stripes["mass_conserved"] = check_mass_conservation(bands["mass"], clean_total)
+        stripes["field_total_kg"] = {
+            "before": float(view.mass.sum()),
+            "after": float(corrected.sum()),
+        }
+        out["l4"] = bands
+    return out

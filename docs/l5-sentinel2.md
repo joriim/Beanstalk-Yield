@@ -71,6 +71,40 @@ a synchronous request).
 CV RMSE and bias, the Sentinel-2 dates used and dropped, the variogram, and the
 filled share.
 
+## Corrections from the records (chain runs)
+
+When L5 runs inside the chain (`yieldsuite run --to L5`), the L3 records are
+available and two corrections of the design document are applied before the
+final fusion. With an L4 raster only (`yieldsuite fuse`) they are skipped and
+the model card says so.
+
+The spatial reference for both is the image prediction f(V), fitted on the L4
+grid without kriging (a kriged residual would carry the stripes back in).
+
+**Correction 1 – residual shift (a check).** Records are moved back along
+their own heading by δ (−24…+24 m), re-binned to the grid and correlated with
+f(V). A clear non-zero optimum (correlation gain ≥ 0.01, not at the edge of
+the range) is reported as a suggested extra delay δ / speed in the model card
+and the run notes. The map is not edited: correct τ_d in the machine profile
+and re-run, as the design document specifies.
+
+**Correction 2 – pass stripes.** log Y_i = log f(V) + b_p + e. Residuals are
+averaged per pass and grid cell first (the reference is only resolved per
+cell), b_p is the shrunken pass mean with method-of-moments variances, the
+gains are renormalised so the field total is unchanged, and the corrected
+record masses are apportioned to the grid again. Pass effects with σ_b below
+3 % are reported but not corrected: a 20 m reference cannot separate them
+from within-cell yield gradients.
+
+Synthetic results (true yield known, image NDVI linear in yield with noise):
+
+| Case | L4 RMSE | L5 RMSE | Result |
+|---|---|---|---|
+| pass gains σ 10 % | 0.485 | 0.162 | σ_b 0.101 estimated, levelled |
+| pass gains σ 5 % | 0.172 | 0.132 | σ_b 0.052, levelled |
+| no stripes | 0.043 | 0.043 | σ_b 0.014 reported, not corrected |
+| τ_d 0 s (true 12 s) | 0.435 | 0.435 | shift check suggests +11 s |
+
 ## Grid alignment
 
 With `crs: EPSG:32635` (UTM 35N), 20 m cells and origin (0, 0), grid cells
@@ -79,5 +113,5 @@ from the pixels it overlaps, which smooths slightly.
 
 ## Not yet included
 
-Residual position shift, pass-stripe levelling, zones, drone orthomosaic
+Zones, drone orthomosaic
 features, and imagery-only relative maps (no harvester data).

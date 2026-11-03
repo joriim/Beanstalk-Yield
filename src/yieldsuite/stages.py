@@ -374,6 +374,23 @@ def stage_fusion(config: FieldYearConfig, state: dict) -> None:
         raise ValueError("L5 needs an imagery entry with kind: sentinel2")
     from .l5.run import run_sentinel2_fusion
 
-    res = run_sentinel2_fusion(config, state["l4"], state["grid"])
+    res = run_sentinel2_fusion(
+        config,
+        state["l4"],
+        state["grid"],
+        records=state.get("records"),
+        polygons=state.get("polygons"),
+    )
     state["l5"] = res
+    rc = res.result.model_card.get("record_corrections", {})
+    notes = state.setdefault("notes", [])
+    shift = rc.get("residual_shift", {})
+    if shift.get("significant"):
+        notes.append(
+            f"image suggests tau_d {shift['suggested_extra_delay_s']:+g} s: check the "
+            "machine profile and re-run"
+        )
+    stripes = rc.get("pass_stripes", {})
+    if stripes.get("applied"):
+        notes.append(f"pass stripes levelled (sigma_b {stripes['sigma_b']:.1%})")
     state.setdefault("outputs", {}).update(L5=str(res.raster), model_card=str(res.model_card))

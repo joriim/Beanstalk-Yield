@@ -85,6 +85,7 @@ def run(config: FieldYearConfig, to_level: Level, from_level: Level = Level.L1A)
     summary.k_factors = state.get("k_factors", {})
     summary.mass_ok = state.get("mass_ok")
     summary.outputs = state.get("outputs", {})
+    summary.notes = list(state.get("notes", []))
     return summary
 
 

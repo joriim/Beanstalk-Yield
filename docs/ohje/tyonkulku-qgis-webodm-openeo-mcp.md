@@ -113,6 +113,14 @@ Tarkistuslista: kuvien ja lokien tarkistussumma, koneen tunnus, sadonkorjuupäiv
 | QGIS | Vertaa `prediction`- ja `yield`-kaistoja; `source` = 2 näyttää täytetyt solut; `sigma` niiden epävarmuuden |
 | Tunnukset | Ilmainen Copernicus Data Space -tili; ensimmäisellä ajolla kirjautuminen selaimessa |
 
+**Korjaukset puintitietueista (ketjun ajossa) – toteutettu**
+
+| Korjaus | Mitä tapahtuu |
+|---|---|
+| Jäännössiirtymä (tarkistus) | Kartan ja kuvan korrelaatio kaistan suunnassa siirrettynä. Selvä siirtymä raportoidaan viive-ehdotuksena (mallikortti ja ajon yhteenveto, myös Slack). Karttaa ei muokata: korjaa viive koneprofiiliin ja aja uudelleen |
+| Kaistaraidat | Kaistakohtainen kerroin sekamallilla (vertailuna kuvan ennuste), kutistus kohti nollaa, lohkon kokonaismassa säilyy. Alle 3 %:n raitoja ei korjata, koska 20 m kuva ei erota niitä solun sisäisestä vaihtelusta |
+| QGIS | Vertaa L4- ja L5-karttaa: raitojen pitäisi kadota ilman, että lohkon kuvio muuttuu |
+
 **Drone (WebODM) – [suunnitelma]**
 
 1. **Lento:** Mavic 3M, RTK päällä, auringonvalosensori, 70–80 % päällekkäisyys. Ajoita samaan ikkunaan kuin hyvät Sentinel-2-päivät. Kalibrointipaneeli ennen ja jälkeen lennon, jos käytössä.
