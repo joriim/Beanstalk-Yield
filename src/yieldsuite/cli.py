@@ -126,6 +126,32 @@ def _cmd_store_demo(args) -> int:
     return 0
 
 
+def _cmd_inspect(args) -> int:
+    from .ingest.inspect import format_report, inspect_file
+
+    kwargs = {
+        k: v
+        for k, v in {
+            "format": args.format,
+            "crop": args.crop,
+            "machine_id": args.machine,
+            "default_swath_m": args.swath,
+            "position_crs": args.position_crs,
+            "vendor_reference_moisture_pct": args.vendor_moisture,
+            "units": dict(u.split("=", 1) for u in args.unit or []),
+            "columns": dict(c.split("=", 1) for c in args.column or []),
+        }.items()
+        if v not in (None, {}, [])
+    }
+    try:
+        result = inspect_file(args.path, crs=args.crs, **kwargs)
+    except (ValueError, ImportError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    print(format_report(result))
+    return 0
+
+
 def _cmd_notify_test(args) -> int:
     from .notify.slack import SlackNotifier
 
@@ -172,6 +198,23 @@ def build_parser() -> argparse.ArgumentParser:
     d = sub.add_parser("demo", help="write a synthetic field-year to try the chain")
     d.add_argument("out_dir")
     d.set_defaults(func=_cmd_demo)
+
+    i = sub.add_parser("inspect", help="detect format, columns and units of a data file")
+    i.add_argument("path")
+    i.add_argument("--crs", default="EPSG:3067", help="field CRS (default EPSG:3067)")
+    i.add_argument("--format", default="auto")
+    i.add_argument("--crop", help="crop name, needed for bu/ac yields")
+    i.add_argument("--machine", help="machine id when the file has no machine column")
+    i.add_argument("--swath", type=float, help="header width [m] when the file has none")
+    i.add_argument("--position-crs", help="CRS of x/y columns if not the field CRS")
+    i.add_argument(
+        "--vendor-moisture",
+        type=float,
+        help="reference moisture [%%] of dry/standard yields in the file",
+    )
+    i.add_argument("--unit", action="append", help="confirm a unit, e.g. --unit speed=mph")
+    i.add_argument("--column", action="append", help="map a column, e.g. --column yield_dry=Sato")
+    i.set_defaults(func=_cmd_inspect)
 
     m = sub.add_parser("mcp", help="run the farm-data MCP server (stdio)")
     m.add_argument("--store", help="data store root (default: $YIELDSUITE_STORE)")

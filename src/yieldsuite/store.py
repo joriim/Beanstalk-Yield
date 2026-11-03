@@ -342,6 +342,37 @@ class FarmStore:
         )
         return dict(zip(cols, row, strict=True))
 
+    def register_harvest_log(
+        self, farm: str, field: str, year: int, source: str | Path, options: dict, actor: str
+    ) -> dict:
+        """Upload a data file to L0 and append it to the config's harvest_logs."""
+        from .ingest.inspect import inspect_file
+
+        cfg = self.load_config(farm, field, year)
+        result = inspect_file(source, cfg.crs, **options)  # fails before anything is written
+        src = Path(source)
+        if src.is_dir():
+            raise StoreError("upload a zip of the TaskData folder, not the folder")
+        entry_raw = self.upload_raw(farm, field, year, "harvest_log", src, actor)
+        entry = dict(result["config_entry"])
+        entry["path"] = f"raw/{entry_raw['path']}"
+        p = self.year_dir(farm, field, year) / "field.yaml"
+        raw = yaml.safe_load(p.read_text()) or {}
+        raw.setdefault("harvest_logs", []).append(entry)
+        p.write_text(yaml.safe_dump(raw, sort_keys=False, allow_unicode=True))
+        self._audit(
+            actor,
+            "register_harvest_log",
+            f"{farm}/{field}/{year}",
+            file=entry["path"],
+            warnings=result["report"]["warnings"],
+        )
+        return {
+            "config_entry": entry,
+            "warnings": result["report"]["warnings"],
+            "sha256": entry_raw["sha256"],
+        }
+
     def approve_qa(
         self, farm: str, field: str, year: int, decision: str, note: str, actor: str
     ) -> dict:

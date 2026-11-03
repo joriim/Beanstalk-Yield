@@ -15,17 +15,40 @@ DEFAULT_SLACK_CHANNEL = "#yield-data-suite"
 
 @dataclass
 class HarvestLog:
+    """One yield/machine data file. Most fields are optional: ``yieldsuite inspect``
+    detects format, columns and units and prints what to put here to confirm them."""
+
     path: Path
-    machine_id: str
-    format: str = "isoxml"  # isoxml | csv
-    # csv: map canonical names (time, x, y | lon, lat, mass_flow, moisture, swath,
-    # speed, heading, header, gnss_quality) to the file's column names
+    machine_id: str = "machine-1"  # used when the file has no machine column
+    format: str = "auto"  # auto | table | excel | vector | isoxml | agleader_advanced
+    # canonical name -> column in the file (time, date, x, y, lon, lat, mass_flow,
+    # dry_mass_flow, yield_wet, yield_dry, yield_volume, moisture, swath, speed,
+    # distance, duration, heading, header, gnss_quality, pass_id, machine, ...)
     columns: dict[str, str] = field(default_factory=dict)
-    entry_level: str = "L1B"  # L1B: mass flow, no delay applied; L2: vendor applied delay
-    mass_flow_unit: str = "kg/s"  # kg/s | t/h
-    speed_unit: str = "m/s"  # m/s | km/h
-    heading_unit: str = "deg"  # deg | rad, clockwise from north
+    units: dict[str, str] = field(default_factory=dict)  # canonical name -> unit token
+    entry_level: str | None = None  # auto: L1B for mass flow, L2 for yield points
     position_crs: str | None = None  # CRS of x/y if not the field CRS
+    crop: str | None = None  # needed for bu/ac yields
+    bushel_weight_lb: float | None = None
+    vendor_reference_moisture_pct: float | None = None  # moisture of dry/standard yields
+    default_swath_m: float | None = None  # when the file has no width column
+    layer: str | None = None  # GeoPackage layer
+    sheet: str | int | None = None  # Excel sheet
+    delimiter: str | None = None
+    decimal: str | None = None
+    ddi_map: dict[int, list[str]] = field(default_factory=dict)  # ISOXML overrides
+    # legacy shortcuts, merged into ``units``
+    mass_flow_unit: str | None = None
+    speed_unit: str | None = None
+    heading_unit: str | None = None
+
+    def unit_overrides(self) -> dict[str, str]:
+        legacy = {
+            "mass_flow": self.mass_flow_unit,
+            "speed": self.speed_unit,
+            "heading": self.heading_unit,
+        }
+        return {**{k: v for k, v in legacy.items() if v}, **self.units}
 
 
 @dataclass
@@ -90,9 +113,7 @@ class FieldYearConfig:
         for img in self.imagery:
             if img.kind not in ("sentinel2", "drone"):
                 problems.append(f"unknown imagery kind {img.kind!r}")
-        for log in self.harvest_logs:
-            if log.machine_id not in self.machines:
-                problems.append(f"harvest log {log.path} uses unknown machine {log.machine_id!r}")
+        # A machine without a profile runs on defaults; the run's QA lists a warning.
         return problems
 
 
@@ -114,6 +135,7 @@ def load_config(path: str | Path) -> FieldYearConfig:
         h = dict(h)
         h["path"] = _path(base, h["path"])
         h["columns"] = dict(h.get("columns") or {})
+        h["units"] = dict(h.get("units") or {})
         logs.append(HarvestLog(**h))
     imagery = []
     for i in raw.get("imagery", []):

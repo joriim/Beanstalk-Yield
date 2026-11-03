@@ -47,8 +47,13 @@ def _stem(config: FieldYearConfig, level: str) -> str:
 
 
 def stage_ingest(config: FieldYearConfig, state: dict) -> None:
-    state["records"] = read_logs(config.harvest_logs, config.crs)
-    state["qa"] = {"records": int(len(state["records"])), "warnings": []}
+    records, reports = read_logs(config.harvest_logs, config.crs)
+    state["records"] = records
+    warnings = [f"{Path(r['source']).name}: {w}" for r in reports for w in r["warnings"]]
+    state["qa"] = {"records": int(len(records)), "ingest": reports, "warnings": warnings}
+    for mid in records["machine_id"].unique():
+        if mid not in config.machines:
+            warnings.append(f"machine {mid!r} has no profile: default delays and offsets used")
 
 
 # --- L1B: mass flow --------------------------------------------------------------

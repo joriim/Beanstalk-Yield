@@ -113,7 +113,32 @@ def build_server(store: FarmStore, actor: str | None = None):
             "config_problems": problems,
         }
 
+    @server.tool(annotations=read)
+    def inspect_harvest_file(
+        path: str, crs: str = "EPSG:3067", options: dict | None = None
+    ) -> dict:
+        """Detect format, columns and units of a yield/machine data file (CSV, TXT,
+        Excel, Shapefile, GeoPackage, GeoJSON, ISOXML TaskData, Ag Leader advanced).
+        Returns the report, warnings and a config entry to confirm. options may set
+        crop, machine_id, default_swath_m, units, columns, vendor_reference_moisture_pct."""
+        from .ingest.inspect import inspect_file
+
+        result = guard(inspect_file, path, crs, **(options or {}))
+        result.pop("config_yaml", None)
+        return result
+
     # --- write ---------------------------------------------------------------------
+
+    @server.tool(annotations=write)
+    def register_harvest_log(
+        farm: str, field: str, year: int, source_path: str, options: dict | None = None
+    ) -> dict:
+        """Copy a yield/machine data file into L0 and add it to the field-year config
+        with the detected (or given) columns and units. Inspect it first and confirm
+        the warnings with the user."""
+        return guard(
+            store.register_harvest_log, farm, field, year, source_path, options or {}, actor
+        )
 
     @server.tool(annotations=write)
     def update_machine_profile(
