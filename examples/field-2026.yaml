@@ -50,6 +50,15 @@ location: {lat: 62.79, lon: 22.84}   # optional; otherwise the centre of the L4 
 weather:
   model: era5_seamless
 
+# Grain quality from a GrainSense Flow (combine) session export (see docs/quality.md)
+# quality:
+#   sources:
+#     - path: data/demo-field-01/2026/gs_flow_session.xlsx
+#       machine_id: combine-a
+#   protein_basis: dry
+#   n_factor: 5.7
+#   lab_samples: data/demo-field-01/2026/lab_protein.csv
+
 # Public services (check the endpoints; see docs/public-data.md)
 public_data:
   stac_url: https://stac.dataspace.copernicus.eu/v1

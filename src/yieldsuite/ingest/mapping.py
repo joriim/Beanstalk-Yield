@@ -12,6 +12,8 @@ import re
 SYNONYMS: dict[str, list[str]] = {
     "time": [
         "time",
+        "measuredat",
+        "mittausaika",
         "timestamp",
         "datetime",
         "isotime",

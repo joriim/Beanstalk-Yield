@@ -265,6 +265,31 @@ def _cmd_zones(args) -> int:
     return 0
 
 
+def _cmd_grainsense(args) -> int:
+    import json
+
+    from .quality.grainsense import DEFAULT_BASE, GrainSenseClient
+
+    client = GrainSenseClient(args.base or DEFAULT_BASE)
+    try:
+        if not client.token:
+            client.login()
+        if args.action == "sessions":
+            for sess in client.flow_sessions(start=args.start, end=args.end):
+                print(json.dumps(sess, default=str)[:400])
+        elif args.action == "export":
+            if not args.uuid or not args.out:
+                print("error: export needs --uuid and --out", file=sys.stderr)
+                return 1
+            data = client.export_flow_sessions(args.uuid, args.format)
+            Path(args.out).write_bytes(data)
+            print(f"wrote {args.out} ({len(data)} bytes); add it under quality.sources")
+    except (OSError, RuntimeError, ValueError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    return 0
+
+
 def _cmd_notify_test(args) -> int:
     from .notify.slack import SlackNotifier
 
@@ -349,6 +374,16 @@ def build_parser() -> argparse.ArgumentParser:
     z.add_argument("--k-max", type=int, default=6)
     z.add_argument("--crs", help="CRS if the rasters do not carry one")
     z.set_defaults(func=_cmd_zones)
+
+    gs = sub.add_parser("grainsense", help="list or export GrainSense Flow (combine) sessions")
+    gs.add_argument("action", choices=["sessions", "export"])
+    gs.add_argument("--start", help="ISO time, e.g. 2026-08-01T00:00:00Z")
+    gs.add_argument("--end")
+    gs.add_argument("--uuid", action="append", help="session uuid (repeat)")
+    gs.add_argument("--format", default="xlsx", choices=["xlsx", "csv"])
+    gs.add_argument("--out")
+    gs.add_argument("--base", help="API base URL (default commercial.grainsense.com/api)")
+    gs.set_defaults(func=_cmd_grainsense)
 
     w = sub.add_parser("weather", help="field weather (ERA5 via Open-Meteo) and agroclimate")
     w.add_argument("config")

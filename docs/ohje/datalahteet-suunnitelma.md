@@ -12,7 +12,7 @@ pitää rakentaa ja mitä tarvitaan lähtötiedoiksi.
 | Lähde | Mittaa | Erotuskyky | Muoto | Tulee ketjuun | Tila |
 |---|---|---|---|---|---|
 | **Datakasvukunnon satokartoitusdata** (tilojen puimurit, eri merkit) | Sadon määrä: massavirta tai satopisteet, kosteus, leveys, sijainti | ~1 s / 1–2 m kaistalla | ISOXML TaskData, valmistajien shapefile/CSV-viennit | L1B tai L2 → L3 → L4 | Tuonti, ketju ja viiveen arvio **valmis**; oikean datan validointi **tarvitaan** |
-| **GrainSense Combine** | Sadon laatu: proteiini (kuiva-aineesta), kosteus, öljy | puinnin aikana, sijainnillinen mittaus | Pilvipalvelu; vientimuoto **tarvitaan** (käsimittarin dashboard: CSV/XLS) | Uusi laatukanava Q1–Q4 | **Rakennettava** |
+| **GrainSense Combine (GS Flow)** | Sadon laatu: proteiini, kosteus, öljy | mittausväli asetettava (esim. 5 s) | Pilvi-API: Flow-mittaussessiot, vienti XLSX/CSV | Laatukanava Q1–Q4 | **Valmis** (oikeaa vientiä ja API:a vasten testaamatta) |
 | **Drone, DJI Mavic 3M** | Heijastus: G 560, R 650, RE 730, NIR 860 nm (+ RGB) | 2–5 cm, lento kerrallaan | Raakakuvat → WebODM → heijastusortokuva | L5-piirteet (20 m) ja tarkka 5 m -taso | Ohje **valmis**; WebODM-integraatio ja yhdenmukaistus **rakennettava** |
 | **Sentinel-2 L2A** | Heijastus 13 kanavaa | 10–20 m, 2–5 pv (pilvet) | openEO / STAC, Copernicus Data Space | L5-piirteet, RUE | **Valmis** (oikeaa rajapintaa vasten testaamatta) |
 | **PlanetScope (SuperDove)** | Heijastus 8 kanavaa | 3 m, lähes päivittäin | Planet API / Sentinel Hub, kaupallinen lisenssi | L5-piirteet aukkojen ja ajoituksen paikkaajana | **Rakennettava**; käyttöoikeus **tarvitaan** |
@@ -39,26 +39,29 @@ Huomioita:
 - Eri merkkien viennit poikkeavat toisistaan: osa sisältää massavirran ja ajan, osa vain satopisteet, joissa viive on jo korjattu. Jokaisesta merkistä ja ohjelmistoversiosta kannattaa tallentaa yksi hyväksytty `harvest_logs`-esimerkki (sarakkeet ja yksiköt), jolloin seuraavat tilat menevät läpi ilman käsityötä.
 - ISOXML-lukija on kokeellinen: ensimmäinen oikea TaskData verrataan valmistajan ohjelman summiin.
 
-## 3. GrainSense Combine: laatukanava
+## 3. GrainSense Combine: laatukanava – toteutettu
 
-Laatumittaus ei sovi suoraan nykyiseen ketjuun, koska proteiini ei ole massaa:
-sitä ei jaeta pinta-alalle vaan painotetaan massalla. Rakennetaan rinnakkainen
-**laatukanava** samoilla periaatteilla.
+GrainSensen julkisen dokumentaation (16.10.2024) perusteella: puimurin
+analysaattori on **GS Flow**, jonka data on pilvessä **mittaussessioina**
+(`flow/v1/measurementSessions`, vienti XLSX/CSV), kirjautuminen JWT:llä.
+API:n mittauksissa on milligrammat (protein, carbohydrate, oil, moisture), ja
+prosentit lasketaan kalibroinnin kosteuspohjan (`dry`/`wet`) mukaan;
+viennissä prosentit ovat valmiina, joten vienti on suositeltu syöte.
 
-| Taso | Sisältö | Malli |
-|---|---|---|
-| **Q1** | Mittaukset SI-yksiköissä: aika, sijainti, proteiini (% kuiva-aineesta), kosteus (% märkäpainosta), öljy | Tuonti samalla kehyksellä kuin satodata (sarake- ja yksikkötunnistus) |
-| **Q2** | Mittaus sijoitettuna leikkauskohtaan | Oma viive τ_q (anturin paikka puimurissa), arvioidaan kuten τ_d vastakkaisista kaistoista; mittaus liitetään lähimpiin satotietueisiin ajan perusteella |
-| **Q3** | Liputettu ja kalibroitu | Liput: kosteus anturin alueen ulkopuolella, leikkuupöytä ylhäällä, poikkeamat. **Kalibrointi laboratorionäytteisiin** (kuten vaakalaput massalle): bias-korjaus näytteiden perusteella; ilman näytteitä tuoteluokka `relative` |
-| **Q4** | Ruudukko | Massalla painotettu keskiarvo solussa: p_g = Σ m_i p_i / Σ m_i (massat L3:sta). Lisäksi **proteiinisato** kg/ha = sato × (1 − kosteus) × proteiini ja **typen otto** ≈ proteiinisato / kerroin (vehnä 5,7; ohra 6,25) |
+| Taso | Toteutus |
+|---|---|
+| **Q1** | Viennin luku sarakkeiden tunnistuksella (protein/proteiini, moisture/kosteus, oil/öljy …); `yieldsuite grainsense sessions/export` hakee pilvestä |
+| **Q2** | Mittaus kohdistetaan **ajan perusteella** siihen satotietueeseen, joka leikkasi viljan (viive oletuksena puimurin τ_d) → sijainti ja massapaino satolokista. Analysaattorin omaa sijaintia ei tarvita |
+| **Q3** | Harha laboratorionäytteisiin (näyteikkunat start/end), muunnos kuiva-aineeksi, poikkeamaliput |
+| **Q4** | Massapainotettu proteiini (% ka.), proteiinisato, typen otto (kerroin 5,7 vehnä / 6,25 muut), laatumittausten massaosuus solussa |
 
-Käyttö: typpitase lohkoittain (typen otto vs. lannoitus), lohkojen
-luokittelu sadon ja laadun mukaan, sekä L5:ssä proteiinin ja kuvien
-(red edge -indeksit) välinen malli.
+Ilman laboratorionäytteitä tuoteluokka on `relative`. Synteettisellä
+pellolla (+0,5 %-yksikön harha) harha arvioitiin −0,51:ksi ja proteiinikartan
+virhe oli 0,06 %-yksikköä. Ks. `docs/quality.md`.
 
-**Tarvitaan:** yksi GS Combine -vienti (tai API-kuvaus): sisältääkö se
-sijainnin ja ajan per mittaus, mittaustiheys, yksiköt ja kalibrointitiedot.
-Ilman sitä Q1:n tuontia ei voi toteuttaa luotettavasti.
+**Vielä varmistettava ensimmäisestä oikeasta viennistä:** sarakenimet,
+aikaleiman muoto ja aikavyöhyke, mittausväli sekä proteiinin kosteuspohja
+(dry vai wet) käytetyssä kalibroinnissa.
 
 ## 4. Drone: DJI Mavic 3M
 
@@ -123,7 +126,7 @@ luokallaan, ei osa L5:tä.
 ## 9. Toteutusjärjestys
 
 1. **Oikean datan validointi**: 3–5 Datakasvukunnon tilan puimuriviennit (eri merkit), vaakalaput ja lohkorajat → hyväksytyt `harvest_logs`-esimerkit merkeittäin, viive- ja raitakynnysten tarkistus.
-2. **GrainSense-laatukanava Q1–Q4** heti, kun esimerkkivienti on saatavilla.
+2. ~~GrainSense-laatukanava Q1–Q4~~ – tehty; varmistetaan ensimmäisellä oikealla viennillä.
 3. **Monilähteinen piirretaulukko ja yhdenmukaistus** (`source`-sarake, sovitus Sentinel-2:een).
 4. **Drone**: WebODM-työkalut, ortokuvan tuonti, 20 m piirteet, 5 m taso.
 5. **PlanetScope**: haku ja lataus käyttöoikeuden mukaan, UDM2, yhdenmukaistus.
@@ -131,7 +134,7 @@ luokallaan, ei osa L5:tä.
 
 ## 10. Tarvitaan lähtötiedoiksi
 
-- GrainSense Combine: esimerkkivienti tai API-dokumentaatio (aika, sijainti, yksiköt, mittaustiheys) ja tieto laboratoriovertailuista.
+- GrainSense Flow: yksi oikea sessiovienti (XLSX/CSV) ja tieto laboratorionäytteistä (näytteen aikaikkuna ja tulos).
 - Datakasvukunto: muutaman tilan puimuriviennit eri merkeistä, vaakalaput tai varastokirjanpito, lohkorajat sekä tieto siitä, millä ehdoilla dataa saa käsitellä ja jakaa.
 - Mavic 3M: yksi lento raakakuvineen ja paneelikuvineen sekä WebODM-instanssin osoite ja tunnus.
 - PlanetScope: käyttöoikeuden muoto (Planet API, Sentinel Hub vai tutkimusohjelma).

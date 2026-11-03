@@ -106,6 +106,27 @@ class PublicDataConfig:
 
 
 @dataclass
+class QualitySource:
+    """One grain-quality analyzer export (e.g. a GrainSense Flow session export)."""
+
+    path: Path
+    machine_id: str = "machine-1"  # the combine carrying the analyzer
+    format: str = "auto"
+    columns: dict[str, str] = field(default_factory=dict)  # time, protein, moisture, oil ...
+    sheet: str | int | None = None
+    delay_s: float | None = None  # analyzer delay; default: the machine's tau_d
+    max_gap_s: float | None = None  # default: 0.75 x measurement interval + 1 s
+
+
+@dataclass
+class QualityConfig:
+    sources: list[QualitySource] = field(default_factory=list)
+    protein_basis: str = "dry"  # basis of the analyzer's protein %: dry | wet
+    n_factor: float = 6.25  # protein -> nitrogen (wheat 5.7)
+    lab_samples: Path | None = None  # CSV: protein_lab_pct + start/end or time
+
+
+@dataclass
 class FieldYearConfig:
     field_id: str
     year: int
@@ -125,6 +146,7 @@ class FieldYearConfig:
     weather: WeatherConfig = field(default_factory=WeatherConfig)
     public_data: PublicDataConfig = field(default_factory=PublicDataConfig)
     edge_buffer_m: float | None = None  # FIELD_EDGE buffer; default: one header width
+    quality: QualityConfig | None = None
 
     @property
     def sentinel2(self) -> ImagerySource | None:
@@ -222,4 +244,22 @@ def load_config(path: str | Path) -> FieldYearConfig:
         weather=WeatherConfig(**(raw.get("weather") or {})),
         public_data=PublicDataConfig(**(raw.get("public_data") or {})),
         edge_buffer_m=raw.get("edge_buffer_m"),
+        quality=_quality(raw.get("quality"), base),
+    )
+
+
+def _quality(raw: dict | None, base: Path) -> QualityConfig | None:
+    if not raw:
+        return None
+    sources = []
+    for src in raw.get("sources", []):
+        src = dict(src)
+        src["path"] = _path(base, src["path"])
+        src["columns"] = dict(src.get("columns") or {})
+        sources.append(QualitySource(**src))
+    return QualityConfig(
+        sources=sources,
+        protein_basis=raw.get("protein_basis", "dry"),
+        n_factor=float(raw.get("n_factor", 6.25)),
+        lab_samples=_path(base, raw.get("lab_samples")),
     )

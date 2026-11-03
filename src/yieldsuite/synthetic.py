@@ -9,6 +9,7 @@ so the chain must recover the true yield pattern and level.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import numpy as np
@@ -38,6 +39,7 @@ class SyntheticField:
     log: pd.DataFrame
     tickets: pd.DataFrame
     true_mass_ref_kg: float
+    cut: pd.DataFrame | None = None  # second-by-second cut position: t (s from start), x, y
 
 
 def make_field(
@@ -46,6 +48,7 @@ def make_field(
     """``pass_gain_sd`` adds a multiplicative monitor gain per pass (stripes)."""
     rng = np.random.default_rng(seed)
     n_pass = int(FIELD_W // HEADER_W)
+    cut_rows: list[tuple[float, float, float]] = []
     rows = []
     t = 0.0
     true_mass = 0.0
@@ -65,6 +68,7 @@ def make_field(
             if cutting:
                 y_mid = hy - sign * SPEED / 2
                 ref_kg_s = true_yield(x, y_mid) / 10.0 * SPEED * HEADER_W
+                cut_rows.append((t + k, x, y_mid))
                 true_mass += ref_kg_s
                 wet = ref_kg_s * (100 - REF_MOISTURE) / (100 - MOISTURE)
             else:
@@ -102,7 +106,8 @@ def make_field(
             "moisture_pct": MOISTURE,
         }
     )
-    return SyntheticField(log, tickets, true_mass)
+    cut = pd.DataFrame(cut_rows, columns=["t", "x", "y"])
+    return SyntheticField(log, tickets, true_mass, cut)
 
 
 def write_demo(out_dir: str | Path, seed: int = 0, **field_kwargs) -> Path:
@@ -211,3 +216,58 @@ def multi_year_layers(
         y = mean * level * pattern * swing * (1 + rng.normal(0, 0.05, zone.shape))
         layers.append(y)
     return grid, layers, zone, unstable
+
+
+START = datetime(2026, 8, 10, 10, 0, 0, tzinfo=timezone.utc)
+
+
+def true_protein(x, y):
+    """% of dry matter: higher where yield is low (dilution) plus an east-west trend."""
+    u = (np.asarray(x) - X0) / FIELD_W
+    return 12.5 - 0.4 * (true_yield(x, y) - 7.0) + 0.8 * np.cos(np.pi * u)
+
+
+def quality_export(
+    field: SyntheticField,
+    interval_s: int = 5,
+    delay_s: float = TAU_D,
+    bias: float = 0.5,
+    noise: float = 0.15,
+    seed: int = 0,
+):
+    """GrainSense-like export (one row per measurement) and lab samples.
+
+    Each measurement averages the grain cut during the previous interval,
+    seen ``delay_s`` later at the analyzer, with an analyzer bias. Lab samples
+    are the true mean protein of 60 s windows. Returns (export, lab).
+    """
+    rng = np.random.default_rng(seed)
+    cut = field.cut
+    p_true = true_protein(cut["x"].to_numpy(), cut["y"].to_numpy())
+    ct = cut["t"].to_numpy(float)
+    rows = []
+    for s in np.arange(ct.min() + delay_s + interval_s, ct.max() + delay_s + 1, interval_s):
+        sel = (ct > s - delay_s - interval_s) & (ct <= s - delay_s)
+        if sel.sum() < interval_s // 2 + 1:
+            continue  # no grain flowing through the analyzer
+        rows.append(
+            {
+                "Measured at": (START + timedelta(seconds=float(s))).isoformat(),
+                "Protein (%)": round(float(p_true[sel].mean()) + bias + rng.normal(0, noise), 2),
+                "Moisture (%)": round(MOISTURE + rng.normal(0, 0.3), 2),
+                "Oil (%)": round(2.1 + rng.normal(0, 0.05), 2),
+                "Session": "Session 001",
+            }
+        )
+    export = pd.DataFrame(rows)
+    lab = []
+    for a in np.quantile(ct, [0.1, 0.35, 0.6, 0.85]):
+        sel = (ct >= a) & (ct < a + 60)
+        lab.append(
+            {
+                "start": (START + timedelta(seconds=float(a + delay_s))).isoformat(),
+                "end": (START + timedelta(seconds=float(a + 60 + delay_s))).isoformat(),
+                "protein_lab_pct": round(float(p_true[sel].mean()), 2),
+            }
+        )
+    return export, pd.DataFrame(lab)

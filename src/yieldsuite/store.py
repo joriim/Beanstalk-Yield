@@ -35,7 +35,7 @@ from .levels import Level
 from .registry import MachineProfile
 
 _ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
-_PRODUCT = re.compile(r"^(L[0-9][AB]?)_.+")
+_PRODUCT = re.compile(r"^(L[0-9][AB]?|Q[1-4])_.+")
 RAW_KINDS = ("harvest_log", "scale_tickets", "drone_images", "boundary", "other")
 
 

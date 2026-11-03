@@ -20,6 +20,7 @@ nav:
   - Weather and agroclimate: weather-agroclimate.md
   - Public data and boundary: public-data.md
   - Management zones: zones.md
+  - Grain quality (GrainSense): quality.md
   - QGIS plugin: qgis.md
   - Ohje – työnkulku ja MCP: ohje/tyonkulku-qgis-webodm-openeo-mcp.md
   - Suunnitelma – datalähteet: ohje/datalahteet-suunnitelma.md

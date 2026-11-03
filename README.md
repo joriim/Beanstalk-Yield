@@ -80,6 +80,9 @@ Pre-alpha. Working end to end:
 - **Public data** ([docs/public-data.md](docs/public-data.md)): Sentinel-2
   scene search over the field (STAC API), parcels from a configurable WFS or
   file, field boundary in L0 and the `FIELD_EDGE` flag.
+- **Grain quality** ([docs/quality.md](docs/quality.md)): GrainSense Flow /
+  combine analyzer exports or cloud API, aligned to the harvester records,
+  lab-calibrated, mass-weighted protein map, protein yield and N uptake.
 - **Management zones** ([docs/zones.md](docs/zones.md)): multi-year relative
   yield + covariates, MULTISPATI-PCA, fuzzy k-means with k chosen by FPI/NCE,
   stability classes (`yieldsuite zones`, MCP `make_zones`).

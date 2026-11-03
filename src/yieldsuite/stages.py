@@ -329,6 +329,16 @@ def stage_grid(config: FieldYearConfig, state: dict) -> None:
         field_mean_yield_t_ha=float(np.nanmean(bands["yield"])),
     )
     _write_outputs(config, state)
+    if config.quality is not None and config.quality.sources:
+        from .quality.pipeline import run_quality
+
+        q = run_quality(config, state)
+        state.setdefault("notes", []).append(
+            f"quality: protein {q['field_mean_protein_pct_dm']:.1f} % DM "
+            f"({'lab-calibrated' if q['lab_calibration'].get('applied') else 'uncalibrated'})"
+            if q["field_mean_protein_pct_dm"] is not None
+            else "quality: no matched measurements"
+        )
 
 
 def _write_outputs(config: FieldYearConfig, state: dict) -> None:
