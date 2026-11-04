@@ -72,10 +72,37 @@ def search_sentinel2(
         "source": search_url.split("/search")[0],
         "collection": collection,
         "n_scenes": len(scenes),
+        "utm_epsg": utm_epsg_for_tiles([s["tile"] for s in kept or scenes]),
         "n_below_max_cloud": len(kept),
         "max_cloud": max_cloud,
         "dates": [
             {"date": d, "cloud_cover": s["cloud_cover"], "tile": s["tile"], "id": s["id"]}
             for d, s in sorted(best.items())
         ],
+    }
+
+
+def utm_epsg_for_tiles(tiles) -> dict:
+    """Suggested grid CRS from Sentinel-2 MGRS tile codes (e.g. "34VEQ", "MGRS-34VEQ").
+
+    The grid should use the UTM zone of the field's tile so 20 m cells coincide
+    with Sentinel-2 pixels. Returns the most frequent zone, its WGS 84 / UTM
+    EPSG code (northern hemisphere), and all zones seen (a field on a zone
+    boundary is covered by tiles of two zones).
+    """
+    import re
+    from collections import Counter
+
+    zones = Counter()
+    for t in tiles:
+        m = re.search(r"(\d{2})([C-X])[A-Z]{2}$", str(t or "").upper())
+        if m:
+            zones[(int(m.group(1)), m.group(2) >= "N")] += 1
+    if not zones:
+        return {}
+    (zone, north), _ = zones.most_common(1)[0]
+    return {
+        "zone": zone,
+        "epsg": f"EPSG:{(32600 if north else 32700) + zone}",
+        "zones_seen": sorted({z for z, _ in zones}),
     }

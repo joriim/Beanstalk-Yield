@@ -177,3 +177,15 @@ def test_mcp_search_and_parcels_with_fake_services(tmp_path, monkeypatch):
         .text
     )
     assert out["parcels"] == ["0001"]
+
+
+def test_utm_zone_suggested_from_tiles():
+    from yieldsuite.public.stac import utm_epsg_for_tiles
+
+    assert utm_epsg_for_tiles(["MGRS-34VEQ", "34VEQ", "35VLL"]) == {
+        "zone": 34,
+        "epsg": "EPSG:32634",
+        "zones_seen": [34, 35],
+    }
+    assert utm_epsg_for_tiles(["T36WVT"])["epsg"] == "EPSG:32636"
+    assert utm_epsg_for_tiles([None, "x"]) == {}
