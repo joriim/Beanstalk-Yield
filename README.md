@@ -68,6 +68,9 @@ Pre-alpha. Working end to end:
   (experimental), Ag Leader advanced; columns and units recognised and
   reported (`yieldsuite inspect FILE`), mass-flow logs and yield-point
   exports both supported ([docs/harvester-chain.md](docs/harvester-chain.md)).
+- **Multi-source imagery** ([docs/multisource.md](docs/multisource.md)): drone
+  orthophotos (Mavic 3M, processed via WebODM) and PlanetScope harmonised to
+  Sentinel-2, with per-source fit and ablation in the model card.
 - **Field weather and agroclimate** ([docs/weather-agroclimate.md](docs/weather-agroclimate.md)):
   ERA5 via Open-Meteo, cloud-aware PAR, clearness index, growing degree days,
   stage dates, water balance, and a per-cell radiation-use-efficiency map.
@@ -99,7 +102,8 @@ Pre-alpha. Working end to end:
 
 Not yet: raw-force (L0) input, validation of ISOXML on real terminal files,
 local Moran's I,
-elevation/soil/station-weather tools in the MCP server, WebODM, the PostGIS/pgSTAC server.
+elevation/soil/station-weather tools in the MCP server, PlanetScope download,
+the PostGIS/pgSTAC server.
 
 ## Työnkulkuohje (suomeksi)
 

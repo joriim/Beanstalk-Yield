@@ -17,6 +17,7 @@ nav:
   - Design – processing levels: design/processing-levels.md
   - Harvester chain L1A–L4: harvester-chain.md
   - L5 Sentinel-2 fusion: l5-sentinel2.md
+  - Multi-source imagery and WebODM: multisource.md
   - Weather and agroclimate: weather-agroclimate.md
   - Public data and boundary: public-data.md
   - Management zones: zones.md

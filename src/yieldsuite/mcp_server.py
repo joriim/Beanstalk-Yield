@@ -52,7 +52,7 @@ def build_server(store: FarmStore, actor: str | None = None):
     def guard(fn, *args, **kwargs):
         try:
             return fn(*args, **kwargs)
-        except (StoreError, FileNotFoundError, ValueError, KeyError) as exc:
+        except (StoreError, FileNotFoundError, ValueError, KeyError, RuntimeError) as exc:
             raise ToolError(str(exc)) from exc
 
     # --- read ----------------------------------------------------------------------
@@ -332,6 +332,53 @@ def build_server(store: FarmStore, actor: str | None = None):
         result = guard(store.make_zones, farm, field, actor, years, covariates, k_max)
         result["summary"].pop("spatial_eigenvalues", None)
         return result
+
+    @server.tool(annotations=public)
+    def webodm_submit(
+        farm: str,
+        field: str,
+        year: int,
+        images: str,
+        date: str,
+        multispectral_only: bool = True,
+        options: dict | None = None,
+    ) -> dict:
+        """Send a drone flight (folder or zip, e.g. raw/drone_images/flight.zip after
+        upload_raw) to the configured WebODM (WEBODM_URL + credentials). Mavic 3M
+        multispectral frames and radiometric calibration by default."""
+        return guard(
+            store.webodm_submit,
+            farm,
+            field,
+            year,
+            images,
+            date,
+            actor,
+            None,
+            multispectral_only,
+            options,
+        )
+
+    @server.tool(annotations=read)
+    def webodm_status(farm: str, field: str, year: int) -> dict:
+        """Status of this field-year's WebODM tasks (queued/running/completed/failed)."""
+        return {"tasks": guard(store.webodm_status, farm, field, year)}
+
+    @server.tool(annotations=write)
+    def import_orthomosaic(
+        farm: str,
+        field: str,
+        year: int,
+        date: str,
+        task_id: str | None = None,
+        source_path: str | None = None,
+        sensor: str = "mavic3m",
+    ) -> dict:
+        """Store a reflectance orthomosaic (from a completed WebODM task or a local file)
+        in L0 and add it as drone imagery; the next L5 run harmonises it to Sentinel-2."""
+        return guard(
+            store.import_orthomosaic, farm, field, year, date, actor, task_id, source_path, sensor
+        )
 
     @server.tool(annotations=write)
     def approve_qa(farm: str, field: str, year: int, decision: str, note: str = "") -> dict:

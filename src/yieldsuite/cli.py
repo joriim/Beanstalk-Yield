@@ -290,6 +290,34 @@ def _cmd_grainsense(args) -> int:
     return 0
 
 
+def _cmd_webodm(args) -> int:
+    import json
+
+    from .drone.webodm import WebODMClient, select_images
+
+    try:
+        client = WebODMClient(args.url)
+        if args.action == "submit":
+            files = select_images(args.images, not args.all_images)
+            pid = client.project(args.project)
+            tid = client.submit(
+                pid,
+                files,
+                args.name or Path(args.images).name,
+                progress=lambda d, n: print(f"  uploaded {d}/{n}"),
+            )
+            print(json.dumps({"project_id": pid, "task_id": tid, "images": len(files)}))
+        elif args.action == "status":
+            print(json.dumps(client.status(args.project_id, args.task)))
+        elif args.action == "download":
+            out = client.download(args.project_id, args.task, args.asset, args.out)
+            print(f"wrote {out}")
+    except (OSError, RuntimeError, ValueError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    return 0
+
+
 def _cmd_notify_test(args) -> int:
     from .notify.slack import SlackNotifier
 
@@ -384,6 +412,23 @@ def build_parser() -> argparse.ArgumentParser:
     gs.add_argument("--out")
     gs.add_argument("--base", help="API base URL (default commercial.grainsense.com/api)")
     gs.set_defaults(func=_cmd_grainsense)
+
+    wo = sub.add_parser("webodm", help="process drone flights with WebODM")
+    wo.add_argument("action", choices=["submit", "status", "download"])
+    wo.add_argument("--url", help="WebODM URL (default $WEBODM_URL)")
+    wo.add_argument("--images", help="flight folder (submit)")
+    wo.add_argument(
+        "--all-images",
+        action="store_true",
+        help="upload all images, not only Mavic 3M multispectral frames",
+    )
+    wo.add_argument("--project", default="yieldsuite", help="project name (submit)")
+    wo.add_argument("--name", help="task name (submit)")
+    wo.add_argument("--project-id", type=int)
+    wo.add_argument("--task")
+    wo.add_argument("--asset", default="orthophoto.tif")
+    wo.add_argument("--out", default="orthophoto.tif")
+    wo.set_defaults(func=_cmd_webodm)
 
     w = sub.add_parser("weather", help="field weather (ERA5 via Open-Meteo) and agroclimate")
     w.add_argument("config")

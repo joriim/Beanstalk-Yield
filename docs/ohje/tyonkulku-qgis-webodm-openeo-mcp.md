@@ -11,7 +11,8 @@ datavarastoa luetaan ja päivitetään sekä julkisia aineistoja haetaan.
 > lämpösumma), komentorivi, Slack-ilmoitukset ja tiladata-MCP (luku 3).
 > Toteutettu myös: Sentinel-2-haku, peltolohkot ja lohkoraja, viiveen arvio,
 > kaistaraidat, lohkojako, laatukanava (GrainSense) ja QGIS-algoritmit.
-> Ei vielä toteutettu: korkeus- ja maaperähaut, WebODM-integraatio. Ne on
+> sekä monilähteiset kuvapiirteet (drone, PlanetScope) ja WebODM-integraatio.
+> Ei vielä toteutettu: korkeus- ja maaperähaut. Ne on
 > merkitty alla tunnuksella **[suunnitelma]**.
 
 ## 1. Roolijako yhdellä silmäyksellä
@@ -122,11 +123,11 @@ Tarkistuslista: kuvien ja lokien tarkistussumma, koneen tunnus, sadonkorjuupäiv
 | Kaistaraidat | Kaistakohtainen kerroin sekamallilla (vertailuna kuvan ennuste), kutistus kohti nollaa, lohkon kokonaismassa säilyy. Alle 3 %:n raitoja ei korjata, koska 20 m kuva ei erota niitä solun sisäisestä vaihtelusta |
 | QGIS | Vertaa L4- ja L5-karttaa: raitojen pitäisi kadota ilman, että lohkon kuvio muuttuu |
 
-**Drone (WebODM) – [suunnitelma]**
+**Drone (WebODM) – toteutettu** (ks. `docs/multisource.md`)
 
 1. **Lento:** Mavic 3M, RTK päällä, auringonvalosensori, 70–80 % päällekkäisyys. Ajoita samaan ikkunaan kuin hyvät Sentinel-2-päivät. Kalibrointipaneeli ennen ja jälkeen lennon, jos käytössä.
 2. **WebODM-tehtävä** monikanavakuvista. Keskeiset asetukset: `radiometric-calibration: camera+sun`, `orthophoto-resolution` esim. 5 cm, `dsm: true`. Tarkista käyttämäsi ODM-version Mavic 3M -tuki ja asetusten nimet ODM:n dokumentaatiosta.
-3. **Tuonti varastoon:** heijastusortokuva (G, R, RE, NIR) ja DSM. MCP: `webodm_create_task`, `webodm_task_status`, `import_orthomosaic` **[suunnitelma]**.
+3. **Tuonti varastoon:** heijastusortokuva (G, R, RE, NIR) ja DSM. MCP: `upload_raw kind=drone_images` → `webodm_submit` → `webodm_status` → `import_orthomosaic`; komentorivi `yieldsuite webodm submit|status|download`.
 4. **Yhdenmukaistus Sentinel-2:een:** ortokuva aggregoidaan samaan 20 m ruudukkoon pinta-alapainotetulla keskiarvolla, ja kanavakohtainen lineaarinen sovitus tehdään samanaikaiseen Sentinel-2-kuvaan. Kaistavastaavuus: G 560 → B03, R 650 → B04, NIR 860 → B8A. RE 730 on B05:n (705) ja B06:n (740) välissä, joten red edge -indeksit eivät ole suoraan vertailukelpoisia ilman sovitusta.
 5. **Käyttö:** drone-indeksit lisäpiirteiksi samaan malliin; 20 m ruudukossa lisäarvo on lähinnä pilvisen kauden paikkaamisessa ja ajankohdan tarkkuudessa. Tarkempi (esim. 5 m) drone-ruudukko vaatii erillisen L4-ajon pienemmällä solukoolla.
 
@@ -269,7 +270,7 @@ aja uudelleen"*, *"Hyväksy QA, kerroin on vaakalappujen mukainen."*
 | `get_soil_map(field_id)` **[suunnitelma]** | GTK, maaperäkartta | Lohkot |
 | `get_station_weather(field_id)` **[suunnitelma]** | Ilmatieteen laitos, avoin data | Lähiaseman havainnot ERA5:n tarkistukseen |
 | `get_satellite_radiation(field_id)` **[suunnitelma]** | CM SAF SARAH-3 | Tarkempi pilvet huomioiva PAR |
-| `webodm_create_task`, `webodm_task_status`, `import_orthomosaic` **[suunnitelma]** | Oma WebODM-instanssi | Drone-ortokuvat |
+| `webodm_submit`, `webodm_status`, `import_orthomosaic` **(toteutettu)** | Oma WebODM-instanssi | Drone-ortokuvat L0:ksi ja L5:een |
 
 Rajapintojen osoitteet, käyttöehdot ja avainten tarve tarkistetaan
 toteutusvaiheessa; ne muuttuvat useammin kuin tämä ohje.
@@ -290,7 +291,7 @@ toteutusvaiheessa; ne muuttuvat useammin kuin tämä ohje.
 3. ~~Monimuotoinen sato- ja konedatan tuonti, `inspect_harvest_file`, `register_harvest_log`~~ – tehty.
 4. ~~Lohkokohtainen sää (ERA5), PAR, lämpösumma, RUE, `get_weather`~~ – tehty.
 5. ~~Viiveen arviointi, `search_sentinel2`, `get_parcels`, `import_boundary`, `FIELD_EDGE`~~ – tehty.
-6. WebODM-työkalut ja drone-yhdenmukaistus L5:een.
+6. ~~WebODM-työkalut ja drone-yhdenmukaistus L5:een~~ – tehty.
 7. ~~Kaistaraidat, jäännössiirtymä, lohkojako~~ – tehty.
 8. MML-, GTK- ja IL-asemahaut sekä SARAH-3-säteily.
 9. ~~QGIS-lisäosan algoritmit kutsumaan samaa ydintä~~ – tehty (6 algoritmia, testattu QGIS 3.34:ssä).

@@ -13,9 +13,9 @@ pitää rakentaa ja mitä tarvitaan lähtötiedoiksi.
 |---|---|---|---|---|---|
 | **Datakasvukunnon satokartoitusdata** (tilojen puimurit, eri merkit) | Sadon määrä: massavirta tai satopisteet, kosteus, leveys, sijainti | ~1 s / 1–2 m kaistalla | ISOXML TaskData, valmistajien shapefile/CSV-viennit | L1B tai L2 → L3 → L4 | Tuonti, ketju ja viiveen arvio **valmis**; oikean datan validointi **tarvitaan** |
 | **GrainSense Combine (GS Flow)** | Sadon laatu: proteiini, kosteus, öljy | mittausväli asetettava (esim. 5 s) | Pilvi-API: Flow-mittaussessiot, vienti XLSX/CSV | Laatukanava Q1–Q4 | **Valmis** (oikeaa vientiä ja API:a vasten testaamatta) |
-| **Drone, DJI Mavic 3M** | Heijastus: G 560, R 650, RE 730, NIR 860 nm (+ RGB) | 2–5 cm, lento kerrallaan | Raakakuvat → WebODM → heijastusortokuva | L5-piirteet (20 m) ja tarkka 5 m -taso | Ohje **valmis**; WebODM-integraatio ja yhdenmukaistus **rakennettava** |
+| **Drone, DJI Mavic 3M** | Heijastus: G 560, R 650, RE 730, NIR 860 nm (+ RGB) | 2–5 cm, lento kerrallaan | Raakakuvat → WebODM → heijastusortokuva | L5-piirteet (20 m) | WebODM-integraatio ja yhdenmukaistus **valmis**; 5 m -taso **rakennettava** |
 | **Sentinel-2 L2A** | Heijastus 13 kanavaa | 10–20 m, 2–5 pv (pilvet) | openEO / STAC, Copernicus Data Space | L5-piirteet, RUE | **Valmis** (oikeaa rajapintaa vasten testaamatta) |
-| **PlanetScope (SuperDove)** | Heijastus 8 kanavaa | 3 m, lähes päivittäin | Planet API / Sentinel Hub, kaupallinen lisenssi | L5-piirteet aukkojen ja ajoituksen paikkaajana | **Rakennettava**; käyttöoikeus **tarvitaan** |
+| **PlanetScope (SuperDove)** | Heijastus 8 kanavaa | 3 m, lähes päivittäin | Planet API / Sentinel Hub, kaupallinen lisenssi | L5-piirteet aukkojen ja ajoituksen paikkaajana | Paikallisten SR-tiedostojen ja UDM2-maskin käyttö **valmis**; lataus API:sta **rakennettava**, käyttöoikeus **tarvitaan** |
 
 Periaate pysyy samana kaikille lähteille: jokainen tulee ketjuun sillä tasolla,
 jolla sitä tarvitaan; jokaisella on alkuperätieto, yksiköt ja epävarmuus; ja
@@ -127,9 +127,9 @@ luokallaan, ei osa L5:tä.
 
 1. **Oikean datan validointi**: 3–5 Datakasvukunnon tilan puimuriviennit (eri merkit), vaakalaput ja lohkorajat → hyväksytyt `harvest_logs`-esimerkit merkeittäin, viive- ja raitakynnysten tarkistus.
 2. ~~GrainSense-laatukanava Q1–Q4~~ – tehty; varmistetaan ensimmäisellä oikealla viennillä.
-3. **Monilähteinen piirretaulukko ja yhdenmukaistus** (`source`-sarake, sovitus Sentinel-2:een).
-4. **Drone**: WebODM-työkalut, ortokuvan tuonti, 20 m piirteet, 5 m taso.
-5. **PlanetScope**: haku ja lataus käyttöoikeuden mukaan, UDM2, yhdenmukaistus.
+3. ~~Monilähteinen piirretaulukko ja yhdenmukaistus~~ – tehty (`docs/multisource.md`).
+4. ~~Drone: WebODM-työkalut, ortokuvan tuonti, 20 m piirteet~~ – tehty; 5 m taso jäljellä.
+5. **PlanetScope**: paikalliset tiedostot, UDM2 ja yhdenmukaistus tehty; haku ja lataus käyttöoikeuden mukaan.
 6. **Lohkojen välinen malli ja datamarkkinan metatiedot** (STAC, suostumus, lisenssi).
 
 ## 10. Tarvitaan lähtötiedoiksi

@@ -507,6 +507,144 @@ class FarmStore:
             "summary": res.summary,
         }
 
+    # --- drone (WebODM) ----------------------------------------------------------
+
+    def _tasks_file(self, farm: str, field: str, year: int) -> Path:
+        d = self.year_dir(farm, field, year) / "drone"
+        d.mkdir(exist_ok=True)
+        return d / "webodm_tasks.json"
+
+    def webodm_submit(
+        self,
+        farm: str,
+        field: str,
+        year: int,
+        images: str | Path,
+        date: str,
+        actor: str,
+        client=None,
+        multispectral_only: bool = True,
+        options: dict | None = None,
+        name: str | None = None,
+    ) -> dict:
+        """Send a flight's images (folder or zip; relative paths are inside the
+        field-year folder, e.g. raw/drone_images/flight.zip) to WebODM."""
+        import tempfile
+        import zipfile
+
+        from .drone.webodm import WebODMClient, select_images
+
+        date = str(date)
+        src = Path(images)
+        if not src.is_absolute():
+            src = self.year_dir(farm, field, year) / src
+        if not src.exists():
+            raise StoreError(f"images not found: {images}")
+        client = client or WebODMClient()
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = src
+            if src.is_file() and zipfile.is_zipfile(src):
+                with zipfile.ZipFile(src) as z:
+                    z.extractall(tmp)
+                folder = Path(tmp)
+            files = select_images(folder, multispectral_only)
+            project_id = client.project(f"{farm}/{field}")
+            task_name = name or f"{field} {date}"
+            task_id = client.submit(project_id, files, task_name, options)
+        entry = {
+            "task_id": task_id,
+            "project_id": project_id,
+            "date": date,
+            "images": len(files),
+            "name": task_name,
+            "source": str(images),
+            "submitted": _now(),
+            "actor": actor,
+        }
+        path = self._tasks_file(farm, field, year)
+        tasks = json.loads(path.read_text()) if path.exists() else []
+        path.write_text(json.dumps([*tasks, entry], indent=2))
+        self._audit(
+            actor,
+            "webodm_submit",
+            f"{farm}/{field}/{year}",
+            task_id=task_id,
+            images=len(files),
+            date=date,
+        )
+        return entry
+
+    def webodm_status(self, farm: str, field: str, year: int, client=None) -> list[dict]:
+        from .drone.webodm import WebODMClient
+
+        path = self._tasks_file(farm, field, year)
+        tasks = json.loads(path.read_text()) if path.exists() else []
+        if not tasks:
+            return []
+        client = client or WebODMClient()
+        return [{**t, **client.status(t["project_id"], t["task_id"])} for t in tasks]
+
+    def import_orthomosaic(
+        self,
+        farm: str,
+        field: str,
+        year: int,
+        date: str,
+        actor: str,
+        task_id: str | None = None,
+        source_path: str | Path | None = None,
+        sensor: str = "mavic3m",
+        client=None,
+    ) -> dict:
+        """Store a reflectance orthomosaic in L0 and add it to the field's imagery.
+
+        Either download it from a completed WebODM task or copy a local file.
+        """
+        date = str(date)
+        raw = self.year_dir(farm, field, year) / "raw" / "drone_ortho"
+        dest = raw / f"{date}_orthophoto.tif"
+        if dest.exists():
+            raise StoreError(f"L0 is immutable: {dest.name} already exists")
+        raw.mkdir(parents=True, exist_ok=True)
+        if task_id:
+            from .drone.webodm import WebODMClient
+
+            path = self._tasks_file(farm, field, year)
+            tasks = json.loads(path.read_text()) if path.exists() else []
+            task = next((t for t in tasks if t["task_id"] == task_id), None)
+            if task is None:
+                raise StoreError(f"unknown WebODM task {task_id}")
+            client = client or WebODMClient()
+            st = client.status(task["project_id"], task_id)
+            if st["status"] != "completed":
+                raise StoreError(f"WebODM task {task_id} is {st['status']}, not completed")
+            client.download(task["project_id"], task_id, "orthophoto.tif", dest)
+            origin = f"webodm task {task_id}"
+        elif source_path:
+            src = Path(source_path)
+            if not src.is_file():
+                raise StoreError(f"orthomosaic not found: {source_path}")
+            shutil.copy2(src, dest)
+            origin = str(source_path)
+        else:
+            raise StoreError("give task_id or source_path")
+        rel = f"raw/drone_ortho/{dest.name}"
+        p = self.year_dir(farm, field, year) / "field.yaml"
+        cfg = yaml.safe_load(p.read_text()) or {}
+        imagery = cfg.setdefault("imagery", [])
+        imagery.append({"kind": "drone", "path": rel, "date": date, "sensor": sensor})
+        p.write_text(yaml.safe_dump(cfg, sort_keys=False, allow_unicode=True))
+        digest = _sha256(dest)
+        self._audit(
+            actor,
+            "import_orthomosaic",
+            f"{farm}/{field}/{year}",
+            file=rel,
+            origin=origin,
+            sha256=digest,
+        )
+        return {"path": rel, "date": date, "sensor": sensor, "sha256": digest, "origin": origin}
+
     def approve_qa(
         self, farm: str, field: str, year: int, decision: str, note: str, actor: str
     ) -> dict:
