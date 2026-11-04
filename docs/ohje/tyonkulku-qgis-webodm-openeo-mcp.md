@@ -9,8 +9,9 @@ datavarastoa luetaan ja päivitetään sekä julkisia aineistoja haetaan.
 > ISOXML kokeellisena, Ag Leader), L5 Sentinel-2 openEO:n kautta,
 > lohkokohtainen sää ja agroklimaatti (ERA5 Open-Meteon kautta: PAR, RUE,
 > lämpösumma), komentorivi, Slack-ilmoitukset ja tiladata-MCP (luku 3).
-> Ei vielä toteutettu: muut julkiset haut (Sentinel-2-haku, peltolohkot,
-> korkeus, maaperä), WebODM-integraatio. Ne on
+> Toteutettu myös: Sentinel-2-haku, peltolohkot ja lohkoraja, viiveen arvio,
+> kaistaraidat, lohkojako, laatukanava (GrainSense) ja QGIS-algoritmit.
+> Ei vielä toteutettu: korkeus- ja maaperähaut, WebODM-integraatio. Ne on
 > merkitty alla tunnuksella **[suunnitelma]**.
 
 ## 1. Roolijako yhdellä silmäyksellä
