@@ -1,7 +1,8 @@
 # One file per field and harvest year. Paths are relative to this file.
 field_id: demo-field-01
 year: 2026
-boundary: data/demo-field-01/boundary.gpkg
+boundary: data/demo-field-01/boundary.gpkg   # or fetch it: yieldsuite parcel <id>
+parcel_ids: ["1234567890"]                    # peruslohkotunnus
 crs: EPSG:3067            # ETRS-TM35FIN
 reference_moisture_pct: 14
 
@@ -71,9 +72,8 @@ weather:
 public_data:
   stac_url: https://stac.dataspace.copernicus.eu/v1
   s2_collection: sentinel-2-l2a
-  # parcels_wfs_url: <parcel register WFS>
-  # parcels_typename: <parcel layer>
-  # parcel_id_column: <parcel id attribute>
+  parcels_wfs_url: https://inspire.ruokavirasto-awsa.com/geoserver/wfs
+  # parcels_typename and parcel_id_column are discovered from the service
 edge_buffer_m: 7.6          # FIELD_EDGE: one header width
 
 output_dir: output/demo-field-01/2026

@@ -36,9 +36,12 @@ def select_parcels(gdf, crs: str, parcel_ids=None, id_column: str | None = None,
     if parcel_ids:
         if not id_column or id_column not in g.columns:
             raise ValueError(f"id_column {id_column!r} not in {list(g.columns)}")
-        wanted = {str(p) for p in parcel_ids}
-        sel = g[g[id_column].astype(str).isin(wanted)]
-        missing = wanted - set(sel[id_column].astype(str))
+        from .parcels import _safe_id
+
+        wanted = {_safe_id(p) or str(p) for p in parcel_ids}
+        keys = g[id_column].map(lambda v: _safe_id(v) or str(v))
+        sel = g[keys.isin(wanted)]
+        missing = wanted - set(keys[keys.isin(wanted)])
         if missing:
             raise ValueError(f"parcels not found: {sorted(missing)}")
         return sel

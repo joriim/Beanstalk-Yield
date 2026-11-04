@@ -645,6 +645,41 @@ class FarmStore:
         )
         return {"path": rel, "date": date, "sensor": sensor, "sha256": digest, "origin": origin}
 
+    def boundary_from_parcel_ids(
+        self,
+        farm: str,
+        field: str,
+        year: int,
+        actor: str,
+        parcel_ids: list[str] | None = None,
+        service=None,
+    ) -> dict:
+        """Fetch parcels by number from the parcel-register WFS and set the boundary."""
+        import json as _json
+
+        from .public.parcels import ParcelService, normalise_parcel_id
+
+        cfg = self.load_config(farm, field, year)
+        ids = [normalise_parcel_id(p) for p in (parcel_ids or cfg.parcel_ids)]
+        if not ids:
+            raise StoreError("give parcel_ids or set parcel_ids in field.yaml")
+        pd_cfg = cfg.public_data
+        service = service or ParcelService(pd_cfg.parcels_wfs_url)
+        choice = service.choose(year, pd_cfg.parcels_typename, pd_cfg.parcel_id_column)
+        fc = service.fetch(ids, choice)
+        path = self.public_dir(farm, field, year) / f"parcels_{'_'.join(ids)}.geojson"
+        path.write_text(_json.dumps(fc))
+        result = self.import_boundary(farm, field, year, path, actor, ids, choice.id_column)
+        self._set_config_key(farm, field, year, "parcel_ids", ids)
+        result["source"] = {
+            "wfs": service.url,
+            "layer": choice.typename,
+            "layer_year": choice.year,
+            "id_column": choice.id_column,
+            "choice": choice.reason,
+        }
+        return result
+
     def approve_qa(
         self, farm: str, field: str, year: int, decision: str, note: str, actor: str
     ) -> dict:

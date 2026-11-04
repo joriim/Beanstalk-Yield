@@ -223,11 +223,17 @@ def build_server(store: FarmStore, actor: str | None = None):
 
         cfg = guard(store.load_config, farm, field, year)
         pd_cfg = cfg.public_data
-        if not (pd_cfg.parcels_wfs_url and pd_cfg.parcels_typename):
-            raise ToolError("set public_data.parcels_wfs_url and parcels_typename in field.yaml")
+        if not pd_cfg.parcels_wfs_url:
+            raise ToolError("set public_data.parcels_wfs_url in field.yaml")
         bbox = guard(field_bbox_wgs84, cfg, _grid(farm, field, year))
         try:
-            fc = get_features(pd_cfg.parcels_wfs_url, pd_cfg.parcels_typename, bbox)
+            typename, idc = pd_cfg.parcels_typename, pd_cfg.parcel_id_column
+            if typename is None or idc is None:
+                from .public.parcels import ParcelService
+
+                choice = ParcelService(pd_cfg.parcels_wfs_url).choose(year, typename, idc)
+                typename, idc = choice.typename, choice.id_column
+            fc = get_features(pd_cfg.parcels_wfs_url, typename, bbox)
         except (OSError, ValueError) as exc:
             raise ToolError(f"parcel WFS failed: {exc}") from exc
         path = store.public_dir(farm, field, year) / "parcels.geojson"
@@ -235,7 +241,6 @@ def build_server(store: FarmStore, actor: str | None = None):
         import geopandas as gpd
 
         gdf = gpd.GeoDataFrame.from_features(fc["features"], crs="EPSG:4326").to_crs(cfg.crs)
-        idc = pd_cfg.parcel_id_column
         parcels = [
             {
                 "id": str(r[idc]) if idc in gdf.columns else str(i),
@@ -332,6 +337,16 @@ def build_server(store: FarmStore, actor: str | None = None):
         result = guard(store.make_zones, farm, field, actor, years, covariates, k_max)
         result["summary"].pop("spatial_eigenvalues", None)
         return result
+
+    @server.tool(annotations=public)
+    def get_boundary_by_parcel_id(
+        farm: str, field: str, year: int, parcel_ids: list[str] | None = None
+    ) -> dict:
+        """Field boundary from parcel numbers (peruslohkotunnus), fetched from the parcel
+        register WFS (default: Ruokavirasto INSPIRE WFS, the layer of this year). Stores
+        the boundary in L0, sets it in field.yaml and enables FIELD_EDGE. Reports which
+        layer and id attribute were used."""
+        return guard(store.boundary_from_parcel_ids, farm, field, year, actor, parcel_ids)
 
     @server.tool(annotations=public)
     def webodm_submit(

@@ -81,10 +81,12 @@ Pre-alpha. Working end to end:
   estimation from opposite passes (`yieldsuite delay`). On the
   synthetic field the map is within about 0.04 t/ha RMSE of the truth.
 - **Public data** ([docs/public-data.md](docs/public-data.md)): Sentinel-2
-  scene search over the field (STAC API), parcels from a configurable WFS or
-  file, field boundary in L0 and the `FIELD_EDGE` flag.
-- **QGIS plugin** ([qgis_plugin/README.md](qgis_plugin/README.md)): six
-  Processing algorithms (inspect, run chain, delay, fusion, zones, weather)
+  scene search over the field (STAC API), **field boundary by parcel number**
+  from the Ruokavirasto parcel register (`yieldsuite parcel <id>`; layer and id
+  attribute discovered from the service), boundary in L0 and the `FIELD_EDGE` flag.
+- **QGIS plugin** ([qgis_plugin/README.md](qgis_plugin/README.md)): seven
+  Processing algorithms (inspect, parcel boundary, run chain, delay, fusion,
+  zones, weather)
   on the same core; tested in a headless QGIS 3.34.
 - **Grain quality** ([docs/quality.md](docs/quality.md)): GrainSense Flow /
   combine analyzer exports or cloud API, aligned to the harvester records,

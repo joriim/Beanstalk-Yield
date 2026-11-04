@@ -106,9 +106,10 @@ class PublicDataConfig:
 
     stac_url: str = "https://stac.dataspace.copernicus.eu/v1"
     s2_collection: str = "sentinel-2-l2a"
-    parcels_wfs_url: str | None = None  # e.g. the national parcel register's WFS
-    parcels_typename: str | None = None
-    parcel_id_column: str | None = None
+    # Finnish Food Authority INSPIRE WFS (parcel register, one layer per year)
+    parcels_wfs_url: str | None = "https://inspire.ruokavirasto-awsa.com/geoserver/wfs"
+    parcels_typename: str | None = None  # default: discovered from the service by year
+    parcel_id_column: str | None = None  # default: discovered (e.g. PERUSLOHKOTUNNUS)
 
 
 @dataclass
@@ -153,6 +154,7 @@ class FieldYearConfig:
     public_data: PublicDataConfig = field(default_factory=PublicDataConfig)
     edge_buffer_m: float | None = None  # FIELD_EDGE buffer; default: one header width
     quality: QualityConfig | None = None
+    parcel_ids: list[str] = field(default_factory=list)  # parcel numbers of this field
 
     @property
     def sentinel2(self) -> ImagerySource | None:
@@ -255,6 +257,7 @@ def load_config(path: str | Path) -> FieldYearConfig:
         public_data=PublicDataConfig(**(raw.get("public_data") or {})),
         edge_buffer_m=raw.get("edge_buffer_m"),
         quality=_quality(raw.get("quality"), base),
+        parcel_ids=[str(v) for v in raw.get("parcel_ids") or []],
     )
 
 

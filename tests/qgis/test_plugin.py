@@ -15,6 +15,7 @@ qgis_core = pytest.importorskip("qgis.core")
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "qgis_plugin"))
+sys.path.insert(0, str(ROOT / "tests"))
 for p in ("/usr/share/qgis/python/plugins", "/usr/share/qgis/python"):
     if Path(p).exists() and p not in sys.path:
         sys.path.append(p)
@@ -63,6 +64,7 @@ def test_provider_lists_algorithms(qgis_app):
         "estimate_delay",
         "fuse_sentinel2",
         "inspect_file",
+        "parcel_boundary",
         "run_chain",
         "weather",
         "zones",
@@ -137,3 +139,18 @@ def test_errors_reach_the_user(qgis_app, tmp_path):
     bad.write_text("field_id: x\nyear: 2026\n")
     with pytest.raises(QgsProcessingException, match="harvest log or imagery"):
         _run("run_chain", {"CONFIG": str(bad), "TO_LEVEL": 0, "LOAD": False})
+
+
+def test_parcel_boundary(qgis_app, tmp_path, monkeypatch):
+    from test_parcels import FakeWFS
+
+    from yieldsuite.public import http
+    from yieldsuite.public import parcels as parcels_mod
+
+    fake = FakeWFS()
+    monkeypatch.setattr(parcels_mod, "_get_text", lambda url, get=None: fake.text(url))
+    monkeypatch.setattr(http, "get_json", fake.json)
+    out = str(tmp_path / "boundary.gpkg")
+    res, context = _run("parcel_boundary", {"IDS": "123-4567-890", "YEAR": 2026, "OUTPUT": out})
+    assert "PERUSLOHKOT_2026" in res["MESSAGE"] and Path(out).exists()
+    assert out in context.layersToLoadOnCompletion()

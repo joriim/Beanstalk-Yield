@@ -276,5 +276,43 @@ class WeatherAlgorithm(_Base):
         return {"SUMMARY": res["outputs"].get("agroclimate"), "MESSAGE": res["message"]}
 
 
-ALGORITHMS = [InspectFileAlgorithm, RunChainAlgorithm, EstimateDelayAlgorithm, FuseAlgorithm,
+class ParcelBoundaryAlgorithm(_Base):
+    NAME, TITLE, GROUP, GROUP_ID = "parcel_boundary", "Field boundary by parcel number", \
+        "Data", "data"
+    HELP = (
+        "Fetches field parcels by number (peruslohkotunnus) from the parcel-register WFS "
+        "(default: Finnish Food Authority INSPIRE WFS, the layer of the given year). The "
+        "layer and id attribute are discovered from the service and reported. Use the result "
+        "as `boundary:` in field.yaml."
+    )
+
+    def initAlgorithm(self, config=None):  # noqa: N802
+        self.addParameter(QgsProcessingParameterString(
+            "IDS", "Parcel numbers (comma separated)"))
+        self.addParameter(QgsProcessingParameterNumber(
+            "YEAR", "Register year", QgsProcessingParameterNumber.Integer, optional=True,
+            minValue=2000, maxValue=2100))
+        self.addParameter(QgsProcessingParameterString("URL", "WFS URL (empty = Ruokavirasto)",
+                                                       optional=True))
+        self.addParameter(QgsProcessingParameterFileDestination(
+            "OUTPUT", "Boundary", "GeoPackage (*.gpkg)"))
+        self.addOutput(QgsProcessingOutputVectorLayer("BOUNDARY", "Boundary"))
+        self.addOutput(QgsProcessingOutputString("MESSAGE", "Summary"))
+
+    def processAlgorithm(self, parameters, context, feedback):  # noqa: N802
+        ids = [v.strip() for v in self.parameterAsString(parameters, "IDS", context).split(",")
+               if v.strip()]
+        year = parameters.get("YEAR")
+        out = self.parameterAsFileOutput(parameters, "OUTPUT", context)
+        res = self._call(
+            _tasks().parcel_boundary, feedback, ids, out,
+            year=self.parameterAsInt(parameters, "YEAR", context) if year not in (None, "")
+            else None,
+            url=self.parameterAsString(parameters, "URL", context) or None,
+        )
+        _load(context, out, "Field boundary")
+        return {"BOUNDARY": out, "OUTPUT": out, "MESSAGE": res["message"]}
+
+
+ALGORITHMS = [InspectFileAlgorithm, ParcelBoundaryAlgorithm, RunChainAlgorithm, EstimateDelayAlgorithm, FuseAlgorithm,
               ZonesAlgorithm, WeatherAlgorithm]

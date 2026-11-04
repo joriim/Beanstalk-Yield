@@ -7,9 +7,9 @@ often than this suite is released, so check them when setting up:
 public_data:
   stac_url: https://stac.dataspace.copernicus.eu/v1   # default; any STAC API works
   s2_collection: sentinel-2-l2a                       # default
-  parcels_wfs_url: <WFS endpoint of the parcel register>
-  parcels_typename: <feature type of the parcels layer>
-  parcel_id_column: <parcel id attribute>
+  parcels_wfs_url: https://inspire.ruokavirasto-awsa.com/geoserver/wfs   # default
+  # parcels_typename: <layer>        # default: discovered by year
+  # parcel_id_column: <attribute>    # default: discovered
 edge_buffer_m: 6            # FIELD_EDGE buffer; default one header width
 ```
 
@@ -24,6 +24,40 @@ MCP: `search_sentinel2(farm, field, year)`. Lists the scenes over the field
 cover, keeping the least cloudy scene per day. Scene cloud cover describes the
 whole 100 km tile; the field-level cloud mask is applied in openEO (SCL).
 The field is located from its boundary, else the L4 grid, else `location`.
+
+## Boundary by parcel number
+
+The quickest way to a field boundary is its parcel number (Finnish
+*peruslohkotunnus*, 10 digits; separators are ignored):
+
+```bash
+yieldsuite parcel 123-4567-890 --year 2026 --out boundary.gpkg
+```
+
+MCP: `get_boundary_by_parcel_id(farm, field, year, parcel_ids)` (or
+`parcel_ids:` in field.yaml) fetches the parcels, stores the boundary in L0,
+sets `boundary:` and `parcel_ids:` in field.yaml and enables `FIELD_EDGE`.
+QGIS: *Data → Field boundary by parcel number*.
+
+Default service: the Finnish Food Authority's (Ruokavirasto) INSPIRE WFS,
+`https://inspire.ruokavirasto-awsa.com/geoserver/wfs`, which publishes the
+parcel register as one layer per year. The layer and the id attribute are
+**discovered from the service**, not hard-coded:
+
+1. GetCapabilities → parcel layers (names/titles with *peruslohko*, *plohko*,
+   *peltolohko*, *parcel*); the layer of the field year, else the latest
+   earlier one (reported);
+2. DescribeFeatureType → the id attribute (`PERUSLOHKOTUNNUS`,
+   `PLOHKOTUNNUS`, `LOHKOTUNNUS`, …);
+3. GetFeature with an OGC Filter (`PropertyIsEqualTo`, `Or` for several
+   parcels), GeoJSON in EPSG:3067. Missing parcels stop with their numbers.
+
+The result reports the layer, its year and the id attribute. If discovery
+picks the wrong one, set `public_data.parcels_typename` /
+`parcel_id_column` (CLI: `--layer`, `--id-column`).
+
+The live service has not been reached from the development environment;
+tested against a fake WFS with the same structure.
 
 ## Field parcels and boundary
 

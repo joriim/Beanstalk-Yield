@@ -42,7 +42,7 @@ muokata käsin.
 | QGIS | Ei tarvita |
 | WebODM | Drone-kuvien L0 on WebODM-projektin alkuperäiset kuvat; ne säilytetään myös varastossa |
 | openEO | Ei käytetä |
-| Julkinen data | Peltolohkon raja: MCP `get_parcels` (peltolohkorekisterin WFS, osoite asetuksissa) tai oma tiedosto → `import_boundary` valitsee lohkot tunnuksen tai puintialueen mukaan ja tallentaa rajan L0:ksi |
+| Julkinen data | **Lohkoraja lohkonumerolla:** `yieldsuite parcel 123-4567-890 --year 2026`, MCP `get_boundary_by_parcel_id` tai QGIS *Data → Field boundary by parcel number*. Haku Ruokaviraston INSPIRE-WFS:stä; vuoden taso ja tunnuskenttä (esim. `PERUSLOHKOTUNNUS`) tunnistetaan palvelusta ja kerrotaan tuloksessa. Vaihtoehtoisesti `get_parcels` alueen lohkoille tai oma tiedosto → `import_boundary` |
 
 Tarkistuslista: kuvien ja lokien tarkistussumma, koneen tunnus, sadonkorjuupäivä.
 

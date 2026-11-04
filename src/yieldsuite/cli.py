@@ -318,6 +318,33 @@ def _cmd_webodm(args) -> int:
     return 0
 
 
+def _cmd_parcel(args) -> int:
+    import json
+
+    from .public.parcels import RUOKAVIRASTO_WFS, ParcelService
+
+    service = ParcelService(args.url or RUOKAVIRASTO_WFS)
+    try:
+        choice = service.choose(args.year, args.layer, args.id_column)
+        print(f"layer {choice.typename} ({choice.reason}); id attribute {choice.id_column}")
+        fc = service.fetch(args.ids, choice)
+    except (OSError, ValueError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    out = Path(args.out)
+    if out.suffix.lower() == ".geojson":
+        out.write_text(json.dumps(fc))
+    else:
+        import geopandas as gpd
+
+        gdf = gpd.GeoDataFrame.from_features(fc["features"], crs="EPSG:3067")
+        gdf.to_file(out, driver="GPKG")
+        for _, r in gdf.iterrows():
+            print(f"  {r[choice.id_column]}: {r.geometry.area / 1e4:.2f} ha")
+    print(f"wrote {out}; use it as `boundary:` in field.yaml")
+    return 0
+
+
 def _cmd_notify_test(args) -> int:
     from .notify.slack import SlackNotifier
 
@@ -429,6 +456,15 @@ def build_parser() -> argparse.ArgumentParser:
     wo.add_argument("--asset", default="orthophoto.tif")
     wo.add_argument("--out", default="orthophoto.tif")
     wo.set_defaults(func=_cmd_webodm)
+
+    pc = sub.add_parser("parcel", help="field boundary by parcel number (parcel register WFS)")
+    pc.add_argument("ids", nargs="+", help="parcel numbers (peruslohkotunnus)")
+    pc.add_argument("--year", type=int, help="register year (default: latest layer)")
+    pc.add_argument("--out", default="boundary.gpkg")
+    pc.add_argument("--url", help="WFS URL (default: Ruokavirasto INSPIRE WFS)")
+    pc.add_argument("--layer", help="feature type, if discovery picks the wrong one")
+    pc.add_argument("--id-column", help="parcel id attribute, if discovery picks the wrong one")
+    pc.set_defaults(func=_cmd_parcel)
 
     w = sub.add_parser("weather", help="field weather (ERA5 via Open-Meteo) and agroclimate")
     w.add_argument("config")
