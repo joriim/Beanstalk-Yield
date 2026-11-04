@@ -153,6 +153,7 @@ class FieldYearConfig:
     weather: WeatherConfig = field(default_factory=WeatherConfig)
     public_data: PublicDataConfig = field(default_factory=PublicDataConfig)
     edge_buffer_m: float | None = None  # FIELD_EDGE buffer; default: one header width
+    local_outlier_radius_m: float = 20.0  # neighbourhood of the local Moran's I flag
     quality: QualityConfig | None = None
     parcel_ids: list[str] = field(default_factory=list)  # parcel numbers of this field
 
@@ -256,6 +257,7 @@ def load_config(path: str | Path) -> FieldYearConfig:
         weather=WeatherConfig(**(raw.get("weather") or {})),
         public_data=PublicDataConfig(**(raw.get("public_data") or {})),
         edge_buffer_m=raw.get("edge_buffer_m"),
+        local_outlier_radius_m=float(raw.get("local_outlier_radius_m", 20.0)),
         quality=_quality(raw.get("quality"), base),
         parcel_ids=[str(v) for v in raw.get("parcel_ids") or []],
     )

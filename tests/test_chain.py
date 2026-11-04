@@ -147,3 +147,38 @@ def test_flat_field_delay_not_identifiable(tmp_path, monkeypatch):
 def test_cli_delay(tmp_path, capsys):
     assert main(["delay", str(synthetic.write_demo(tmp_path))]) == 0
     assert "estimated" in capsys.readouterr().out
+
+
+def test_local_outliers_in_the_chain(tmp_path):
+    import pandas as pd
+
+    from yieldsuite import stages
+    from yieldsuite.timeutil import epoch_seconds
+
+    cfg_path = synthetic.write_demo(tmp_path)
+    log = synthetic.make_field(0).log
+    rng = np.random.default_rng(3)
+    on = np.flatnonzero(log["Header"] == 1)
+    picks = rng.choice(on[(on % 120 > 30) & (on % 120 < 90)], 12, replace=False)
+    log.loc[picks, "Mass_Flow_kg_s"] *= 0.45  # local drops (e.g. a partial blockage)
+    log.to_csv(tmp_path / "combine-a_2026.csv", index=False)
+    cfg = load_config(cfg_path)
+    st = {}
+    for stage in (
+        stages.stage_ingest,
+        stages.stage_mass_flow,
+        stages.stage_georeference,
+        stages.stage_clean,
+    ):
+        stage(cfg, st)
+    rec = st["records"]
+    flags = rec["flags"].to_numpy()
+    injected = np.isin(
+        np.round(rec["t"].to_numpy() + synthetic.TAU_D),
+        np.round(epoch_seconds(pd.Series(log.loc[picks, "Time"]))),
+    )
+    caught = (flags & int(Flag.LOCAL_OUTLIER | Flag.GLOBAL_OUTLIER)) != 0
+    assert injected.sum() >= 10 and (caught & injected).sum() >= 0.7 * injected.sum()
+    false_local = ((flags & int(Flag.LOCAL_OUTLIER)) != 0) & ~injected
+    assert false_local.sum() <= 0.002 * rec["header_down"].sum()
+    assert st["qa"]["local_outliers"]["records"] >= 5

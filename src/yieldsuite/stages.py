@@ -26,7 +26,12 @@ from .l2.track import (
     shift_signal,
 )
 from .l2.yield_ import yield_t_ha
-from .l3.filters import flag_fill_finish, flag_global_outliers, flag_speed
+from .l3.filters import (
+    flag_fill_finish,
+    flag_global_outliers,
+    flag_local_outliers,
+    flag_speed,
+)
 from .l3.reconcile import reconciliation_factor
 from .l4.grid import Grid, apportion_mass, check_mass_conservation
 from .levels import Level
@@ -239,6 +244,32 @@ def stage_clean(config: FieldYearConfig, state: dict) -> None:
         out = np.zeros(len(rec), bool)
         out[candidates] = flag_global_outliers(rec["yield"].to_numpy()[candidates])
         flags = set_flag(flags, out, Flag.GLOBAL_OUTLIER)
+    # Local spatial outliers among the records still clean (Vega et al. 2019).
+    candidates = flags == 0
+    if candidates.sum() > 30:
+        h = rec["heading"].to_numpy()
+        half = rec["length"].to_numpy() / 2
+        cx = rec["hx"].to_numpy() - np.sin(h) * half
+        cy = rec["hy"].to_numpy() - np.cos(h) * half
+        radius = config.local_outlier_radius_m
+        loc = np.zeros(len(rec), bool)
+        both, moran, robust = flag_local_outliers(
+            cx[candidates],
+            cy[candidates],
+            rec["yield"].to_numpy()[candidates],
+            radius,
+            return_parts=True,
+        )
+        loc[candidates] = both
+        flags = set_flag(flags, loc, Flag.LOCAL_OUTLIER)
+        state["qa"]["local_outliers"] = {
+            "radius_m": radius,
+            "records": int(loc.sum()),
+            "by_local_morans_i": int(moran.sum()),
+            "by_neighbour_median": int(robust.sum()),
+            "method": "negative local Moran's I (199 permutations, p < 0.01, |z - lag| > 2 sd)"
+            " or > 4 robust SD from the neighbours' median",
+        }
     rec["flags"] = flags
 
     # Reconciliation uses all harvested mass, flagged records included, because
