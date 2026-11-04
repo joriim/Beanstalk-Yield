@@ -234,7 +234,7 @@ def _cmd_zones(args) -> int:
     covs = []
     for p in args.covariate or []:
         b, g, _ = read_bands(p, require_yield=False)
-        covs.append((next(iter(b.values())), g))
+        covs += [(arr, g) for arr in b.values()]
         grids.append(g)
     target = union_grid(grids)
     try:
@@ -342,6 +342,24 @@ def _cmd_parcel(args) -> int:
         for _, r in gdf.iterrows():
             print(f"  {r[choice.id_column]}: {r.geometry.area / 1e4:.2f} ha")
     print(f"wrote {out}; use it as `boundary:` in field.yaml")
+    return 0
+
+
+def _cmd_terrain(args) -> int:
+    import json
+
+    from .covariates.terrain import TERRAIN_BANDS, terrain_covariates
+    from .l4.io import read_bands, write_cog
+
+    _, grid, crs = read_bands(args.like, require_yield=False)
+    try:
+        bands, report = terrain_covariates(args.dem, grid, args.crs or crs, args.buffer)
+    except (OSError, ValueError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    out = write_cog(bands, grid, args.crs or crs, args.out, names=TERRAIN_BANDS)
+    print(json.dumps(report, indent=2))
+    print(f"wrote {out}; use it as a zones covariate (--covariate {out})")
     return 0
 
 
@@ -465,6 +483,14 @@ def build_parser() -> argparse.ArgumentParser:
     pc.add_argument("--layer", help="feature type, if discovery picks the wrong one")
     pc.add_argument("--id-column", help="parcel id attribute, if discovery picks the wrong one")
     pc.set_defaults(func=_cmd_parcel)
+
+    te = sub.add_parser("terrain", help="terrain covariates (elevation, slope, TPI, TWI)")
+    te.add_argument("dem", help="elevation model GeoTIFF (projected CRS, metres)")
+    te.add_argument("--like", required=True, help="L4/L5 raster whose grid to use")
+    te.add_argument("--out", default="terrain.tif")
+    te.add_argument("--buffer", type=float, default=200.0, help="TWI catchment buffer [m]")
+    te.add_argument("--crs")
+    te.set_defaults(func=_cmd_terrain)
 
     w = sub.add_parser("weather", help="field weather (ERA5 via Open-Meteo) and agroclimate")
     w.add_argument("config")

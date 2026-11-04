@@ -78,7 +78,7 @@ Scale tickets (`scale_tickets:`) are a CSV with `mass_kg`, and optionally
 | L1A | Read logs, unit conversion, project positions to the field CRS |
 | L1B | Nothing for vendor exports (mass flow already computed) |
 | L2 | Shift mass flow by τ_d and moisture by τ_m so each record gets the grain it cut; standardise to reference moisture; antenna → header offset; pass segmentation; record polygons; effective (non-overlapping) area; yield |
-| L3 | Flags: header up, fill/finish, speed, moisture range, effective swath, GNSS, global outliers (median ± 3·MAD). Reconciliation factor k per machine from scale tickets |
+| L3 | Flags: header up, fill/finish, speed, moisture range, effective swath, GNSS, field edge, global outliers (median ± 3·MAD), local outliers (negative local Moran's I with a permutation test, or > 4 robust SD from the neighbours' median). Reconciliation factor k per machine from scale tickets |
 | L4 | Mass apportioning of clean records to the fixed grid; quality bands; mass-conservation check |
 | L5 | Sentinel-2 fusion, if `--to L5` and a `sentinel2` imagery entry exist |
 
@@ -135,5 +135,5 @@ In `output_dir`:
 
 ## Not yet
 
-Moisture-delay (τ_m) estimation, local Moran's I, field-boundary edge flag,
+Moisture-delay (τ_m) estimation, field-boundary edge flag,
 raw force (L0) signals.

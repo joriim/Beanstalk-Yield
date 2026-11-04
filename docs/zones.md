@@ -11,6 +11,29 @@ yieldsuite zones L5_field_2023.tif L5_field_2024.tif L5_field_2025.tif \
 MCP: `make_zones(farm, field, years?, covariates?, k_max?)` uses each year's
 L5 map where it exists, else L4, and writes to `<farm>/<field>/zones/`.
 
+## Terrain covariates
+
+```bash
+yieldsuite terrain dem.tif --like L5_field_2025.tif --out terrain.tif
+yieldsuite zones L5_*.tif --covariate terrain.tif --out zones/
+```
+
+MCP: `make_terrain(farm, field, dem_path)` writes
+`<field>/covariates/terrain.tif`; pass `covariates/terrain.tif` to
+`make_zones`. Every band of a covariate raster becomes its own layer.
+
+| Band | Definition |
+|---|---|
+| `elevation_m` | area-weighted mean elevation |
+| `slope_deg` | slope at the DEM's resolution, averaged to the grid |
+| `tpi_m` | elevation minus the mean within 100 m (negative = hollow) |
+| `twi` | ln(a / tan β), D8 flow accumulation on a grid buffered by 200 m |
+
+Use a DEM in a projected CRS (e.g. the NLS 2 m elevation model in
+EPSG:3067) that extends ~200 m beyond the field; otherwise TWI misses water
+arriving from outside and the report warns. Fetching the NLS DEM directly
+needs an API key and is not built yet.
+
 ## Method
 
 1. **Relative yield** per year: % of that year's field mean, so years and

@@ -447,6 +447,39 @@ class FarmStore:
         )
         return {"boundary": rel, "parcels": ids, "n_parcels": len(sel), "area_ha": area_ha}
 
+    def make_terrain(
+        self, farm: str, field: str, dem_path: str | Path, actor: str, buffer_m: float = 200.0
+    ) -> dict:
+        """Terrain covariates on the field's grid (from its latest L4/L5 map), written to
+        <farm>/<field>/covariates/terrain.tif for make_zones."""
+        from .covariates.terrain import TERRAIN_BANDS, terrain_covariates
+        from .l4.io import read_bands, write_cog
+
+        fdir = self.farm_dir(farm) / _check_id(field, "field id")
+        dem = Path(dem_path)
+        if not dem.is_absolute():
+            dem = fdir / dem
+        if not dem.is_file():
+            raise StoreError(f"DEM not found: {dem_path}")
+        years = next((f["years"] for f in self.list_fields(farm) if f["field_id"] == field), [])
+        like = None
+        for y in sorted(years, reverse=True):
+            for level in ("L5", "L4"):
+                p = self.year_dir(farm, field, y) / "output" / f"{level}_{field}_{y}.tif"
+                if p.exists():
+                    like = p
+                    break
+            if like:
+                break
+        if like is None:
+            raise StoreError("run the chain to L4 first: the terrain grid follows the yield grid")
+        _, grid, crs = read_bands(like)
+        bands, report = terrain_covariates(dem, grid, crs, buffer_m)
+        out = write_cog(bands, grid, crs, fdir / "covariates" / "terrain.tif", names=TERRAIN_BANDS)
+        rel = str(out.relative_to(fdir))
+        self._audit(actor, "make_terrain", f"{farm}/{field}", dem=str(dem_path), out=rel)
+        return {"covariate": rel, "grid_from": like.name, "report": report}
+
     def make_zones(
         self,
         farm: str,
@@ -485,7 +518,7 @@ class FarmStore:
             if not cp.is_file():
                 raise StoreError(f"covariate not found: {c}")
             b, g, _ = read_bands(cp, require_yield=False)
-            cov_arrays.append((next(iter(b.values())), g))
+            cov_arrays += [(arr, g) for arr in b.values()]  # every band is a covariate
             grids.append(g)
         target = union_grid(grids)
         placed = [place(a, g, target) for a, g in zip(layers, grids, strict=False)]

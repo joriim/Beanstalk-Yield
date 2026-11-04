@@ -90,7 +90,7 @@ Tarkistuslista: kuvien ja lokien tarkistussumma, koneen tunnus, sadonkorjuupäiv
 
 | Mitä | Miten |
 |---|---|
-| Laskenta | `--to L3`: liput (leikkuupöytä ylhäällä, kaistan päät, nopeus, kosteus, leveys, GNSS, poikkeamat) ja kerroin k konekohtaisesti |
+| Laskenta | `--to L3`: liput (leikkuupöytä ylhäällä, kaistan päät, nopeus, kosteus, leveys, GNSS, pellon reuna, koko pellon poikkeamat ja paikalliset poikkeamat: paikallinen Moranin I sekä vertailu naapurien mediaaniin) ja kerroin k konekohtaisesti |
 | QGIS – lippujen tarkastus | Tyylitä `flags` luokiteltuna (0 = puhdas). Tarkista, että liputettu osuus on järkevä (tyypillisesti 20–40 %, synteettisellä pellolla ~10 %) ja että poikkeamat eivät kasaudu yhteen kohtaan (silloin kyse voi olla todellisesta ilmiöstä) |
 | QA | `L4_..._qa.json`: k-kertoimet, lippujen määrät, varoitukset. Slack-viesti näyttää samat luvut |
 | Päätös | Hyväksy k tai pyydä lisää vaakalappuja. MCP: `approve_qa` (approved / rejected / needs_data); Slack-painike myöhemmin |
@@ -155,7 +155,7 @@ kynnyslämpötila, korjuuindeksi, kasvuvaiheiden lämpösummat), valinnainen
 | Laskenta | `yieldsuite zones L5_2023.tif L5_2024.tif ... [--covariate korkeus.tif]` tai MCP `make_zones(farm, field)` (käyttää kunkin vuoden L5-karttaa, muuten L4:ää). Vuodet suhteelliseksi sadoksi → spatiaalinen PCA (MULTISPATI) → fuzzy k-means; lohkojen määrä valitaan FPI- ja NCE-indekseillä (KM-sPC, Córdoba ym.) |
 | Vakaus | Solukohtainen luokka: korkea ja vakaa, matala ja vakaa, epävakaa (vuosien välinen CV ≥ 15 %) |
 | Tulokset | GeoTIFF (lohko, jäsenyysaste, vakaus, suhteellinen sato ja sen CV), lohkopolygonit GeoPackagena, yhteenveto JSON:na |
-| Julkinen data | Kovariaatit: Maanmittauslaitoksen korkeusmalli, GTK:n maaperäkartta (`get_elevation`, `get_soil_map` **[suunnitelma]**; nyt omana rasterina samassa ruudukossa). Vuosien vertailuun ERA5-yhteenvedot (`get_weather`) |
+| Julkinen data | Kovariaatit: maastomuuttujat korkeusmallista (`yieldsuite terrain` / MCP `make_terrain`: korkeus, kaltevuus, topografinen asema, kosteusindeksi TWI; korkeusmallin pitää ulottua ~200 m lohkon ulkopuolelle). MML-korkeusmallin ja GTK:n maaperäkartan suora haku (`get_elevation`, `get_soil_map`) **[suunnitelma]**. Vuosien vertailuun ERA5-yhteenvedot (`get_weather`) |
 | QGIS | Avaa lohkopolygonit (`zones_*.gpkg`); viimeistele rajat ja yhdistä pienet alueet; levityskarttojen pohja |
 | Rajoitus | Synteettisellä aineistolla 3 oikeaa lohkoa löytyy 2–5 vuoden datasta; kahdella vuodella epävakaa alue voi muodostaa oman lohkonsa. Lohko kertoo, missä sato on ollut toistuvasti korkea tai matala; erilainen hoito on agronominen päätös |
 

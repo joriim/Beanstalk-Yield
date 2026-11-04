@@ -323,6 +323,13 @@ def build_server(store: FarmStore, actor: str | None = None):
         )
 
     @server.tool(annotations=write)
+    def make_terrain(farm: str, field: str, dem_path: str, buffer_m: float = 200.0) -> dict:
+        """Terrain covariates (elevation, slope, topographic position, wetness index) from
+        an elevation model on the field's yield grid; use the returned path as a
+        make_zones covariate. The DEM should extend ~200 m beyond the field."""
+        return guard(store.make_terrain, farm, field, dem_path, actor, buffer_m)
+
+    @server.tool(annotations=write)
     def make_zones(
         farm: str,
         field: str,

@@ -114,7 +114,7 @@ def zones(
     covs = []
     for p in covariate_paths or []:
         b, g, _ = read_bands(p, require_yield=False)
-        covs.append((next(iter(b.values())), g))
+        covs += [(arr, g) for arr in b.values()]  # every band is a covariate
         grids.append(g)
     target = union_grid(grids)
     res = make_zones(

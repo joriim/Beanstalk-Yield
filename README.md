@@ -93,7 +93,8 @@ Pre-alpha. Working end to end:
   lab-calibrated, mass-weighted protein map, protein yield and N uptake.
 - **Management zones** ([docs/zones.md](docs/zones.md)): multi-year relative
   yield + covariates, MULTISPATI-PCA, fuzzy k-means with k chosen by FPI/NCE,
-  stability classes (`yieldsuite zones`, MCP `make_zones`).
+  stability classes (`yieldsuite zones`, MCP `make_zones`); terrain covariates
+  (elevation, slope, TPI, wetness index) from a DEM (`yieldsuite terrain`).
 - **Farm-data MCP server** (`yieldsuite mcp --store <root>`): list fields and
   products, QA, versioned machine profiles, immutable L0 upload, scale
   tickets, QA approvals, `run_chain` with optional Slack summary; every write
@@ -103,7 +104,6 @@ Pre-alpha. Working end to end:
   residual-shift check of the delay. Not yet run against the live backend.
 
 Not yet: raw-force (L0) input, validation of ISOXML on real terminal files,
-local Moran's I,
 elevation/soil/station-weather tools in the MCP server, PlanetScope download,
 the PostGIS/pgSTAC server.
 
