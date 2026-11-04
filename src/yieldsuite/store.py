@@ -448,19 +448,21 @@ class FarmStore:
         return {"boundary": rel, "parcels": ids, "n_parcels": len(sel), "area_ha": area_ha}
 
     def make_terrain(
-        self, farm: str, field: str, dem_path: str | Path, actor: str, buffer_m: float = 200.0
+        self,
+        farm: str,
+        field: str,
+        dem_path: str | Path | None,
+        actor: str,
+        buffer_m: float = 200.0,
+        dem_source=None,
     ) -> dict:
         """Terrain covariates on the field's grid (from its latest L4/L5 map), written to
-        <farm>/<field>/covariates/terrain.tif for make_zones."""
+        <farm>/<field>/covariates/terrain.tif for make_zones. Without ``dem_path`` the
+        NLS 2 m elevation model is fetched for the field plus the buffer (NLS_API_KEY)."""
         from .covariates.terrain import TERRAIN_BANDS, terrain_covariates
         from .l4.io import read_bands, write_cog
 
         fdir = self.farm_dir(farm) / _check_id(field, "field id")
-        dem = Path(dem_path)
-        if not dem.is_absolute():
-            dem = fdir / dem
-        if not dem.is_file():
-            raise StoreError(f"DEM not found: {dem_path}")
         years = next((f["years"] for f in self.list_fields(farm) if f["field_id"] == field), [])
         like = None
         for y in sorted(years, reverse=True):
@@ -474,10 +476,32 @@ class FarmStore:
         if like is None:
             raise StoreError("run the chain to L4 first: the terrain grid follows the yield grid")
         _, grid, crs = read_bands(like)
+        if dem_path is None:
+            from .public.nls_dem import NLSElevation, grid_bbox
+
+            bbox = grid_bbox(grid, buffer_m + 40)
+            if crs.upper() not in ("EPSG:3067",):
+                from pyproj import Transformer
+
+                tr = Transformer.from_crs(crs, "EPSG:3067", always_xy=True)
+                xs, ys = tr.transform(
+                    [bbox[0], bbox[2], bbox[2], bbox[0]], [bbox[1], bbox[1], bbox[3], bbox[3]]
+                )
+                bbox = (min(xs), min(ys), max(xs), max(ys))
+            dem = fdir / "covariates" / "dem_nls_2m.tif"
+            prov = (dem_source or NLSElevation()).fetch(bbox, dem)
+            dem_label = f"NLS {prov['coverage']}"
+        else:
+            dem = Path(dem_path)
+            if not dem.is_absolute():
+                dem = fdir / dem
+            if not dem.is_file():
+                raise StoreError(f"DEM not found: {dem_path}")
+            dem_label = str(dem_path)
         bands, report = terrain_covariates(dem, grid, crs, buffer_m)
         out = write_cog(bands, grid, crs, fdir / "covariates" / "terrain.tif", names=TERRAIN_BANDS)
         rel = str(out.relative_to(fdir))
-        self._audit(actor, "make_terrain", f"{farm}/{field}", dem=str(dem_path), out=rel)
+        self._audit(actor, "make_terrain", f"{farm}/{field}", dem=dem_label, out=rel)
         return {"covariate": rel, "grid_from": like.name, "report": report}
 
     def make_zones(

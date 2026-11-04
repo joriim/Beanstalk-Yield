@@ -29,10 +29,17 @@ MCP: `make_terrain(farm, field, dem_path)` writes
 | `tpi_m` | elevation minus the mean within 100 m (negative = hollow) |
 | `twi` | ln(a / tan β), D8 flow accumulation on a grid buffered by 200 m |
 
-Use a DEM in a projected CRS (e.g. the NLS 2 m elevation model in
-EPSG:3067) that extends ~200 m beyond the field; otherwise TWI misses water
-arriving from outside and the report warns. Fetching the NLS DEM directly
-needs an API key and is not built yet.
+Use a DEM in a projected CRS that extends ~200 m beyond the field; otherwise
+TWI misses water arriving from outside and the report warns.
+
+**In Finland the DEM can be fetched automatically**: leave the DEM out
+(`yieldsuite terrain --like L5.tif`, MCP `make_terrain` without `dem_path`)
+and the National Land Survey's 2 m elevation model (`korkeusmalli_2m`, WCS
+2.0, CC BY 4.0) is downloaded for the field plus the buffer. It needs a free
+personal API key from the NLS *My account* service in `NLS_API_KEY`; the key
+is never written to logs, errors or provenance. The coverage's axis labels
+are read from the service (DescribeCoverage). Attribution: "Contains data
+from the National Land Survey of Finland". Tested against a fake WCS only.
 
 ## Method
 

@@ -94,7 +94,8 @@ Pre-alpha. Working end to end:
 - **Management zones** ([docs/zones.md](docs/zones.md)): multi-year relative
   yield + covariates, MULTISPATI-PCA, fuzzy k-means with k chosen by FPI/NCE,
   stability classes (`yieldsuite zones`, MCP `make_zones`); terrain covariates
-  (elevation, slope, TPI, wetness index) from a DEM (`yieldsuite terrain`).
+  (elevation, slope, TPI, wetness index) from a DEM file or the NLS 2 m DEM
+  fetched automatically (`yieldsuite terrain`, needs a free NLS API key).
 - **Farm-data MCP server** (`yieldsuite mcp --store <root>`): list fields and
   products, QA, versioned machine profiles, immutable L0 upload, scale
   tickets, QA approvals, `run_chain` with optional Slack summary; every write

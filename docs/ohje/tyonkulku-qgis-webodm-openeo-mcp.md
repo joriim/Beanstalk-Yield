@@ -12,7 +12,7 @@ datavarastoa luetaan ja päivitetään sekä julkisia aineistoja haetaan.
 > Toteutettu myös: Sentinel-2-haku, peltolohkot ja lohkoraja, viiveen arvio,
 > kaistaraidat, lohkojako, laatukanava (GrainSense) ja QGIS-algoritmit.
 > sekä monilähteiset kuvapiirteet (drone, PlanetScope) ja WebODM-integraatio.
-> Ei vielä toteutettu: korkeus- ja maaperähaut. Ne on
+> Ei vielä toteutettu: maaperähaut (GTK). Ne on
 > merkitty alla tunnuksella **[suunnitelma]**.
 
 ## 1. Roolijako yhdellä silmäyksellä
@@ -155,7 +155,7 @@ kynnyslämpötila, korjuuindeksi, kasvuvaiheiden lämpösummat), valinnainen
 | Laskenta | `yieldsuite zones L5_2023.tif L5_2024.tif ... [--covariate korkeus.tif]` tai MCP `make_zones(farm, field)` (käyttää kunkin vuoden L5-karttaa, muuten L4:ää). Vuodet suhteelliseksi sadoksi → spatiaalinen PCA (MULTISPATI) → fuzzy k-means; lohkojen määrä valitaan FPI- ja NCE-indekseillä (KM-sPC, Córdoba ym.) |
 | Vakaus | Solukohtainen luokka: korkea ja vakaa, matala ja vakaa, epävakaa (vuosien välinen CV ≥ 15 %) |
 | Tulokset | GeoTIFF (lohko, jäsenyysaste, vakaus, suhteellinen sato ja sen CV), lohkopolygonit GeoPackagena, yhteenveto JSON:na |
-| Julkinen data | Kovariaatit: maastomuuttujat korkeusmallista (`yieldsuite terrain` / MCP `make_terrain`: korkeus, kaltevuus, topografinen asema, kosteusindeksi TWI; korkeusmallin pitää ulottua ~200 m lohkon ulkopuolelle). MML-korkeusmallin ja GTK:n maaperäkartan suora haku (`get_elevation`, `get_soil_map`) **[suunnitelma]**. Vuosien vertailuun ERA5-yhteenvedot (`get_weather`) |
+| Julkinen data | Kovariaatit: maastomuuttujat korkeusmallista (`yieldsuite terrain` / MCP `make_terrain`: korkeus, kaltevuus, topografinen asema, kosteusindeksi TWI; korkeusmallin pitää ulottua ~200 m lohkon ulkopuolelle). Maanmittauslaitoksen 2 m korkeusmalli haetaan automaattisesti, jos korkeusmallia ei anneta (`yieldsuite terrain --like L5.tif` / MCP `make_terrain` ilman `dem_path`; vaatii maksuttoman MML:n API-avaimen ympäristömuuttujaan `NLS_API_KEY`). GTK:n maaperäkartan haku (`get_soil_map`) **[suunnitelma]**. Vuosien vertailuun ERA5-yhteenvedot (`get_weather`) |
 | QGIS | Avaa lohkopolygonit (`zones_*.gpkg`); viimeistele rajat ja yhdistä pienet alueet; levityskarttojen pohja |
 | Rajoitus | Synteettisellä aineistolla 3 oikeaa lohkoa löytyy 2–5 vuoden datasta; kahdella vuodella epävakaa alue voi muodostaa oman lohkonsa. Lohko kertoo, missä sato on ollut toistuvasti korkea tai matala; erilainen hoito on agronominen päätös |
 
@@ -266,7 +266,7 @@ aja uudelleen"*, *"Hyväksy QA, kerroin on vaakalappujen mukainen."*
 | `fetch_s2_features(field_id, year)` | openEO (toteutettu ytimessä) | L5-piirteet |
 | `get_parcels(farm, field, year)` **(toteutettu)** | Peltolohkorekisterin WFS (osoite `public_data`-asetuksissa) | Lohkoehdokkaat ja pinta-alat, tallennus `public/parcels.geojson` |
 | `import_boundary(farm, field, year, source_path, parcel_ids?)` **(toteutettu)** | Tiedosto tai `get_parcels`-tulos | Lohkoraja L0:ksi, `FIELD_EDGE`-liputus |
-| `get_elevation(field_id)` **[suunnitelma]** | Maanmittauslaitos, korkeusmalli 2 m (avoin, API-avain) | Lohkot, maaston kovariaatit |
+| `make_terrain(farm, field)` **(toteutettu)** | Maanmittauslaitos, korkeusmalli 2 m (WCS, avoin, API-avain) | Maastomuuttujat lohkojakoon |
 | `get_soil_map(field_id)` **[suunnitelma]** | GTK, maaperäkartta | Lohkot |
 | `get_station_weather(field_id)` **[suunnitelma]** | Ilmatieteen laitos, avoin data | Lähiaseman havainnot ERA5:n tarkistukseen |
 | `get_satellite_radiation(field_id)` **[suunnitelma]** | CM SAF SARAH-3 | Tarkempi pilvet huomioiva PAR |

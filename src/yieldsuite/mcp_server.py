@@ -52,7 +52,7 @@ def build_server(store: FarmStore, actor: str | None = None):
     def guard(fn, *args, **kwargs):
         try:
             return fn(*args, **kwargs)
-        except (StoreError, FileNotFoundError, ValueError, KeyError, RuntimeError) as exc:
+        except (StoreError, FileNotFoundError, ValueError, KeyError, RuntimeError, OSError) as exc:
             raise ToolError(str(exc)) from exc
 
     # --- read ----------------------------------------------------------------------
@@ -323,10 +323,13 @@ def build_server(store: FarmStore, actor: str | None = None):
         )
 
     @server.tool(annotations=write)
-    def make_terrain(farm: str, field: str, dem_path: str, buffer_m: float = 200.0) -> dict:
-        """Terrain covariates (elevation, slope, topographic position, wetness index) from
-        an elevation model on the field's yield grid; use the returned path as a
-        make_zones covariate. The DEM should extend ~200 m beyond the field."""
+    def make_terrain(
+        farm: str, field: str, dem_path: str | None = None, buffer_m: float = 200.0
+    ) -> dict:
+        """Terrain covariates (elevation, slope, topographic position, wetness index) on the
+        field's yield grid; use the returned path as a make_zones covariate. Without
+        dem_path the NLS 2 m elevation model (Finland) is fetched for the field plus the
+        buffer; needs NLS_API_KEY. A given DEM should extend ~200 m beyond the field."""
         return guard(store.make_terrain, farm, field, dem_path, actor, buffer_m)
 
     @server.tool(annotations=write)

@@ -353,8 +353,17 @@ def _cmd_terrain(args) -> int:
 
     _, grid, crs = read_bands(args.like, require_yield=False)
     try:
-        bands, report = terrain_covariates(args.dem, grid, args.crs or crs, args.buffer)
-    except (OSError, ValueError) as exc:
+        dem = args.dem
+        if dem is None:
+            from .public.nls_dem import NLSElevation, grid_bbox
+
+            if (args.crs or crs).upper() != "EPSG:3067":
+                raise ValueError("the NLS DEM is fetched in EPSG:3067; give a DEM file instead")
+            dem = Path(args.out).with_name("dem_nls_2m.tif")
+            NLSElevation().fetch(grid_bbox(grid, args.buffer + 40), dem)
+            print(f"fetched {dem} (National Land Survey of Finland, CC BY 4.0)")
+        bands, report = terrain_covariates(dem, grid, args.crs or crs, args.buffer)
+    except (OSError, ValueError, RuntimeError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
     out = write_cog(bands, grid, args.crs or crs, args.out, names=TERRAIN_BANDS)
@@ -485,7 +494,12 @@ def build_parser() -> argparse.ArgumentParser:
     pc.set_defaults(func=_cmd_parcel)
 
     te = sub.add_parser("terrain", help="terrain covariates (elevation, slope, TPI, TWI)")
-    te.add_argument("dem", help="elevation model GeoTIFF (projected CRS, metres)")
+    te.add_argument(
+        "dem",
+        nargs="?",
+        help="elevation model GeoTIFF (projected CRS, metres); "
+        "omit to fetch the NLS 2 m DEM (Finland, needs NLS_API_KEY)",
+    )
     te.add_argument("--like", required=True, help="L4/L5 raster whose grid to use")
     te.add_argument("--out", default="terrain.tif")
     te.add_argument("--buffer", type=float, default=200.0, help="TWI catchment buffer [m]")
