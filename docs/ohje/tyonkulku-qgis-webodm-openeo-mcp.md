@@ -100,7 +100,7 @@ Tarkistuslista: kuvien ja lokien tarkistussumma, koneen tunnus, sadonkorjuupäiv
 
 | Mitä | Miten |
 |---|---|
-| Laskenta | `--to L4`: massa jaetaan kiinteään ruudukkoon (EPSG:3067 tai UTM 35N, 20 m), massan säilyminen tarkistetaan |
+| Laskenta | `--to L4`: massa jaetaan kiinteään ruudukkoon (EPSG:3067 tai lohkon Sentinel-2-ruudun UTM-vyöhyke, esim. EPSG:32634 Länsi-Suomessa, 20 m), massan säilyminen tarkistetaan |
 | QGIS | Avaa `L4_..._yield.tif`. Kaistat: `yield`, `coverage`, `n_records`, `spread`, `flagged_share`, `passes`. Näytä `yield` vain, kun `coverage` ≥ 0,5 (Raster Calculator tai tyylin läpinäkyvyys toisen kaistan mukaan) |
 | MCP | `list_products(farm, field, level="L4")`, `get_product(product_id)` (ruudukko ja satotilastot) |
 

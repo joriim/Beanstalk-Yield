@@ -10,9 +10,10 @@ grid cell and date. What comes back is a small table:
 Needs ``yieldsuite[geo,fusion]`` (pyproj and the openeo client) and a free
 Copernicus Data Space account for ``authenticate_oidc``.
 
-Alignment note: with ``crs: EPSG:32635`` (UTM 35N), 20 m cells and origin
-(0, 0), grid cells coincide with Sentinel-2 20 m pixels. With EPSG:3067 the
-cells are averaged from the overlapping pixels instead, which smooths slightly.
+Alignment note: with the UTM zone of the field's Sentinel-2 tile (Finland spans
+EPSG:32634-32636; e.g. tile 34VEQ near Seinajoki is zone 34), 20 m cells and
+origin (0, 0), grid cells coincide with Sentinel-2 20 m pixels. With EPSG:3067
+the cells are averaged from the overlapping pixels instead, which smooths slightly.
 """
 
 from __future__ import annotations

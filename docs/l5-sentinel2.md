@@ -105,11 +105,21 @@ Synthetic results (true yield known, image NDVI linear in yield with noise):
 | no stripes | 0.043 | 0.043 | σ_b 0.014 reported, not corrected |
 | τ_d 0 s (true 12 s) | 0.435 | 0.435 | shift check suggests +11 s |
 
+## Live check
+
+Verified against Copernicus Data Space (November 2026): `SENTINEL2_L2A`
+offers every band the suite requests (B04, B05, B07, B08, B8A, B11, SCL),
+and the backend validates the process graph without errors. A full run
+still needs a Copernicus Data Space account.
+
 ## Grid alignment
 
-With `crs: EPSG:32635` (UTM 35N), 20 m cells and origin (0, 0), grid cells
-coincide with Sentinel-2 20 m pixels. With EPSG:3067 each cell is averaged
-from the pixels it overlaps, which smooths slightly.
+Grid cells coincide with Sentinel-2 20 m pixels when the grid uses the UTM
+zone of the field's Sentinel-2 tile, 20 m cells and origin (0, 0). Finland
+spans zones 34–36: western Finland (e.g. Seinäjoki, tile 34VEQ) is
+`EPSG:32634`, central `EPSG:32635`, eastern `EPSG:32636`; the tile code is
+in the `s2-search` output. With EPSG:3067 each cell is averaged from the
+pixels it overlaps, which smooths slightly.
 
 ## Not yet included
 

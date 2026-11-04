@@ -85,8 +85,10 @@ raidat, jäännössiirtymä → RUE ja lohkot.
 
 Laajennettava monilähteiseksi: piirretaulukkoon lisätään sarake `source`
 (sentinel2 / planetscope / drone) ja Sentinel-2 toimii **vertailutasona**,
-johon muut lähteet yhdenmukaistetaan. Grid kannattaa asettaa UTM 35N:ään origolla
-(0, 0), jolloin 20 m solut osuvat Sentinel-2:n pikseleihin.
+johon muut lähteet yhdenmukaistetaan. Ruudukko kannattaa asettaa lohkon
+Sentinel-2-ruudun UTM-vyöhykkeeseen origolla (0, 0), jolloin 20 m solut osuvat
+Sentinel-2:n pikseleihin. Suomi on vyöhykkeillä 34–36: esim. Seinäjoen seutu
+on ruudulla 34VEQ eli EPSG:32634 (ruutu näkyy `s2-search`-tuloksessa).
 
 ## 6. PlanetScope
 

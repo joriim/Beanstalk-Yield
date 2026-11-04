@@ -39,7 +39,13 @@ and the National Land Survey's 2 m elevation model (`korkeusmalli_2m`, WCS
 personal API key from the NLS *My account* service in `NLS_API_KEY`; the key
 is never written to logs, errors or provenance. The coverage's axis labels
 are read from the service (DescribeCoverage). Attribution: "Contains data
-from the National Land Survey of Finland". Tested against a fake WCS only.
+from the National Land Survey of Finland".
+
+Verified against the live service (November 2026): axis labels `E`/`N` are
+discovered, a 2 m GeoTIFF in EPSG:3067 is returned, and terrain covariates
+on a real 2 ha parcel near Seinäjoki (boundary fetched by parcel number)
+came out plausible (elevation 50.0–51.8 m, slope ≤ 5.6°, TWI 5.2–12.1) with
+the DEM covering the whole buffer.
 
 ## Method
 

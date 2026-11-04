@@ -21,7 +21,8 @@ yieldsuite s2-search field.yaml [--l4 L4.tif] [--max-cloud 60]
 
 MCP: `search_sentinel2(farm, field, year)`. Lists the scenes over the field
 (STAC API `POST /search`, paginated) with their date, tile and scene cloud
-cover, keeping the least cloudy scene per day. Scene cloud cover describes the
+cover, keeping the least cloudy scene per day. Verified against Copernicus
+Data Space (tile codes such as `MGRS-34VEQ`). Scene cloud cover describes the
 whole 100 km tile; the field-level cloud mask is applied in openEO (SCL).
 The field is located from its boundary, else the L4 grid, else `location`.
 
@@ -56,8 +57,14 @@ The result reports the layer, its year and the id attribute. If discovery
 picks the wrong one, set `public_data.parcels_typename` /
 `parcel_id_column` (CLI: `--layer`, `--id-column`).
 
-The live service has not been reached from the development environment;
-tested against a fake WFS with the same structure.
+**Verified against the live service (November 2026):** layers
+`inspire:LandUse.ExistingLandUse.GSAAAgriculturalParcel.<year>` for
+2020–2025 are discovered, the id attribute is `PERUSLOHKOTUNNUS`, the filter
+query returns the parcel in EPSG:3067, and the area matches the register
+(e.g. 7430047224: 2.02 ha). The layer holds one feature per growing block
+(`LOHKONUMERO`); a parcel with several blocks is returned as several
+features and the boundary is their union. For the current year, before its
+layer is published, the latest earlier year is used and reported.
 
 ## Field parcels and boundary
 
