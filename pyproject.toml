@@ -10,6 +10,7 @@ readme = "README.md"
 license = "Apache-2.0"
 requires-python = ">=3.10"
 authors = [{ name = "Yield Data Suite contributors" }]
+maintainers = [{ email = "miiro.jaaskelainen@iki.fi" }]
 keywords = ["precision agriculture", "yield monitor", "yield map", "Sentinel-2", "ISOXML", "GIS"]
 classifiers = [
   "Programming Language :: Python :: 3",
