@@ -1,5 +1,18 @@
 # Roadmap
 
+Toward the [vision](vision.md): the Linux of modelling agricultural yield and
+its causes.
+
+## Yield causes
+
+| Function | Priority |
+|---|---|
+| As-applied data (sowing, fertilisation, spraying) as covariates, from ISOXML and the machine-cloud connectors below | High. Management is the cause a farmer can change. |
+| Attribution of within-field yield variation to weather, soil, terrain, management and measurement error, each with uncertainty | High. The core of "why", not only "how much". |
+| On-farm trial design and analysis (strips, checkerboards) so management effects are estimated, not inferred from correlation | Medium |
+| Season-to-season comparison: which zones respond to which weather (dry vs wet years) | Medium |
+| GTK soil data and soil samples as covariates | Medium |
+
 ## Functions from other software worth adding
 
 From a review of existing yield-data and farm-management software (November 2026):

@@ -19,7 +19,7 @@ from .levels import Level
 from .store import FarmStore, StoreError
 
 INSTRUCTIONS = """\
-Yield Data Suite farm-data server. Use it to inspect fields, products and QA,
+Miiro farm-data server. Use it to inspect fields, products and QA,
 to record human decisions, and to run the yield-map chain.
 
 - Read tools never change anything. Write tools (update_machine_profile,
@@ -43,7 +43,7 @@ def build_server(store: FarmStore, actor: str | None = None):
         raise ImportError("the MCP server needs: pip install yieldsuite[mcp]") from exc
 
     actor = actor or os.environ.get("YIELDSUITE_ACTOR", "mcp-client")
-    server = MCPServer("yieldsuite-farm-data", instructions=INSTRUCTIONS)
+    server = MCPServer("miiro-farm-data", instructions=INSTRUCTIONS)
     read = ToolAnnotations(readOnlyHint=True, openWorldHint=False)
     write = ToolAnnotations(
         readOnlyHint=False, destructiveHint=False, idempotentHint=False, openWorldHint=False

@@ -1,6 +1,6 @@
 # QGIS plugin
 
-Processing provider *Yield Data Suite* with seven algorithms. Each is a thin
+Processing provider *Miiro* with seven algorithms. Each is a thin
 wrapper around `yieldsuite.tasks`, so results are identical to the command
 line. Licensed GPL-2.0-or-later (see `LICENSE`), as required for QGIS
 plugins; the core library stays Apache-2.0.
@@ -24,7 +24,7 @@ plugins; the core library stays Apache-2.0.
 2. Install the plugin: *Plugins → Manage and Install Plugins → Install from ZIP*
    with `yieldsuite_qgis.zip` (built by CI, or
    `cd qgis_plugin && zip -r yieldsuite_qgis.zip yieldsuite_qgis`).
-3. The algorithms appear in the *Processing Toolbox* under *Yield Data Suite*.
+3. The algorithms appear in the *Processing Toolbox* under *Miiro*.
 
 If the library is missing, every algorithm stops with the install hint.
 

@@ -20,7 +20,7 @@ datavarastoa luetaan ja päivitetään sekä julkisia aineistoja haetaan.
 | Työkalu | Rooli | Ei käytetä |
 |---|---|---|
 | **yieldsuite** (Python-ydin) | Kaikki laskenta L0–L5; ainoa paikka, jossa malleja ajetaan | — |
-| **QGIS** | Katselu, tarkastus, ihmisen päätökset (viive, liput, hyväksyntä), lohkojen viimeistely. Processing-työkalupakissa *Yield Data Suite*: tiedoston tarkistus, ketjun ajo, viiveen arvio, fuusio, lohkojako ja sää (samat funktiot kuin komentorivillä) | Laskentaa ei tehdä käsin QGISissä, ettei tulos riipu klikkauksista |
+| **QGIS** | Katselu, tarkastus, ihmisen päätökset (viive, liput, hyväksyntä), lohkojen viimeistely. Processing-työkalupakissa *Miiro*: tiedoston tarkistus, ketjun ajo, viiveen arvio, fuusio, lohkojako ja sää (samat funktiot kuin komentorivillä) | Laskentaa ei tehdä käsin QGISissä, ettei tulos riipu klikkauksista |
 | **WebODM** | Drone-kuvista heijastusortokuva (Mavic 3M), DSM | Satodatan käsittely |
 | **openEO** (Copernicus Data Space) | Sentinel-2-aikasarjat palvelimella: pilvimaski, indeksit, keskiarvo ruuduittain | Satodata ei koskaan lähde openEO:hon |
 | **ERA5 / Open-Meteo** | Lohkon päivittäinen sää: lämpötila, pilvet huomioiva säteily, sade, ET0 | Palveluun lähtee vain pyöristetty sijainti (~5 km) |

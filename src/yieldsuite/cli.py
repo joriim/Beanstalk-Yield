@@ -392,7 +392,7 @@ def _cmd_notify_test(args) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(prog="yieldsuite", description=__doc__)
+    p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--version", action="version", version=f"yieldsuite {__version__}")
     sub = p.add_subparsers(dest="command", required=True)
 

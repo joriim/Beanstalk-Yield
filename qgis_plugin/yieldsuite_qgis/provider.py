@@ -9,10 +9,10 @@ class YieldSuiteProvider(QgsProcessingProvider):
         return "yieldsuite"
 
     def name(self):
-        return "Yield Data Suite"
+        return "Miiro"
 
     def longName(self):  # noqa: N802
-        return "Yield Data Suite: yield maps from harvester, drone and satellite data"
+        return "Miiro: open modelling of crop yield and its causes"
 
     def loadAlgorithms(self):  # noqa: N802
         for alg in ALGORITHMS:
