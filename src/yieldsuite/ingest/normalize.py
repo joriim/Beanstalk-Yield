@@ -20,6 +20,7 @@ from dataclasses import dataclass, field
 import numpy as np
 import pandas as pd
 
+from ..timeutil import epoch_seconds
 from .mapping import match_columns
 from .units import FACTORS, QUANTITY, bushel_weight, convert, unit_from_header, unit_from_values
 
@@ -191,7 +192,7 @@ def _times(df: pd.DataFrame, m: dict, report: IngestReport) -> np.ndarray:
                 return v
             if "date" in m:
                 day = pd.to_datetime(df[m["date"]], dayfirst=True, utc=True)
-                return day.astype("int64").to_numpy() / 1e9 + v
+                return epoch_seconds(day) + v
             report.warnings.append("time is relative seconds without a date")
             return v
         text = col.astype(str).str.strip()
@@ -201,7 +202,7 @@ def _times(df: pd.DataFrame, m: dict, report: IngestReport) -> np.ndarray:
         parsed = pd.to_datetime(text, dayfirst=dayfirst, utc=True, errors="coerce", format="mixed")
         if parsed.isna().mean() > 0.05:
             raise ValueError(f"could not parse time column {m['time']!r}")
-        return parsed.astype("int64").to_numpy() / 1e9
+        return epoch_seconds(parsed)
     if "duration" in m:
         d = _num(df[m["duration"]])
         report.derived.append("time from cumulative duration")

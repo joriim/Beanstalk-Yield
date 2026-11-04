@@ -80,6 +80,9 @@ Pre-alpha. Working end to end:
 - **Public data** ([docs/public-data.md](docs/public-data.md)): Sentinel-2
   scene search over the field (STAC API), parcels from a configurable WFS or
   file, field boundary in L0 and the `FIELD_EDGE` flag.
+- **QGIS plugin** ([qgis_plugin/README.md](qgis_plugin/README.md)): six
+  Processing algorithms (inspect, run chain, delay, fusion, zones, weather)
+  on the same core; tested in a headless QGIS 3.34.
 - **Grain quality** ([docs/quality.md](docs/quality.md)): GrainSense Flow /
   combine analyzer exports or cloud API, aligned to the harvester records,
   lab-calibrated, mass-weighted protein map, protein yield and N uptake.
@@ -96,7 +99,7 @@ Pre-alpha. Working end to end:
 
 Not yet: raw-force (L0) input, validation of ISOXML on real terminal files,
 local Moran's I,
-elevation/soil/station-weather tools in the MCP server, WebODM, the QGIS algorithm wiring, the PostGIS/pgSTAC server.
+elevation/soil/station-weather tools in the MCP server, WebODM, the PostGIS/pgSTAC server.
 
 ## Työnkulkuohje (suomeksi)
 

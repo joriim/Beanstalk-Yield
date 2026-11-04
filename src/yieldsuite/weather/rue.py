@@ -28,15 +28,13 @@ def _daily_fapar(
     obs_dates: list[date], fapar: np.ndarray, days: pd.DatetimeIndex, sowing: date, harvest: date
 ) -> np.ndarray:
     """fapar: (n_obs, n_cells) -> (n_days, n_cells)."""
-    xs = [
-        pd.Timestamp(sowing).value,
-        *[pd.Timestamp(d).value for d in obs_dates],
-        pd.Timestamp(harvest).value,
-    ]
-    xs = np.asarray(xs, dtype=float)
+    # Day numbers from sowing: independent of pandas' datetime resolution.
+    xs = np.asarray(
+        [0.0, *[(d - sowing).days for d in obs_dates], (harvest - sowing).days], dtype=float
+    )
     zero = np.zeros((1, fapar.shape[1]))
     ys = np.vstack([zero, fapar, zero])
-    t = days.asi8.astype(float)
+    t = np.asarray([(d.date() - sowing).days for d in days], dtype=float)
     out = np.empty((len(days), fapar.shape[1]))
     for c in range(fapar.shape[1]):
         col = ys[:, c]

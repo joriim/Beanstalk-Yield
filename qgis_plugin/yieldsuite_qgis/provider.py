@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 from qgis.core import QgsProcessingProvider
 
-from .algorithms import GridYieldAlgorithm
+from .algorithms import ALGORITHMS
 
 
 class YieldSuiteProvider(QgsProcessingProvider):
@@ -11,5 +11,9 @@ class YieldSuiteProvider(QgsProcessingProvider):
     def name(self):
         return "Yield Data Suite"
 
+    def longName(self):  # noqa: N802
+        return "Yield Data Suite: yield maps from harvester, drone and satellite data"
+
     def loadAlgorithms(self):  # noqa: N802
-        self.addAlgorithm(GridYieldAlgorithm())
+        for alg in ALGORITHMS:
+            self.addAlgorithm(alg())

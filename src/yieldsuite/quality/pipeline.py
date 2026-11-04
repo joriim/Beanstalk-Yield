@@ -13,6 +13,7 @@ from ..ingest.mapping import match_columns, normalise_header
 from ..ingest.readers import read_any
 from ..l3.filters import flag_global_outliers
 from ..l4.grid import Grid
+from ..timeutil import epoch_seconds
 
 QUALITY_SYNONYMS = {
     "protein": [
@@ -85,12 +86,7 @@ def read_quality(path, fmt: str = "auto", columns: dict | None = None, sheet=Non
             raise ValueError("quality time must be absolute (epoch or ISO), not relative")
     else:
         dayfirst = bool(tcol.astype(str).str.match(r"^\d{1,2}[./]\d{1,2}[./]\d{2,4}").any())
-        t = (
-            pd.to_datetime(tcol, utc=True, dayfirst=dayfirst, format="mixed")
-            .astype("int64")
-            .to_numpy()
-            / 1e9
-        )
+        t = epoch_seconds(pd.to_datetime(tcol, utc=True, dayfirst=dayfirst, format="mixed"))
     out = pd.DataFrame({"t": t})
     for canon in ("protein", "moisture", "oil", "starch", "carbohydrate"):
         if canon in qm:

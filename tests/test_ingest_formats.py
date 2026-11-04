@@ -18,6 +18,7 @@ from yieldsuite.ingest.mapping import match_columns
 from yieldsuite.ingest.units import convert, unit_from_header
 from yieldsuite.levels import Level
 from yieldsuite.pipeline import run
+from yieldsuite.timeutil import epoch_seconds
 
 CRS = "EPSG:3067"
 
@@ -246,7 +247,7 @@ def test_isoxml_taskdata_zip_through_chain(tmp_path):
 
     log = synthetic.make_field(0).log
     lon, lat = _to_lonlat(log["Easting"].to_numpy(), log["Northing"].to_numpy())
-    t = pd.to_datetime(log["Time"]).astype("int64").to_numpy() / 1e9
+    t = epoch_seconds(log["Time"])
     df = pd.DataFrame(
         {
             "t": t,
@@ -286,7 +287,7 @@ def test_agleader_advanced_preset(tmp_path):
     pytest.importorskip("pyproj")
     log = synthetic.make_field(0).log.head(300)
     lon, lat = _to_lonlat(log["Easting"].to_numpy(), log["Northing"].to_numpy())
-    t = pd.to_datetime(log["Time"]).astype("int64").to_numpy() / 1e9
+    t = epoch_seconds(log["Time"])
     rows = pd.DataFrame(
         {
             "lon": lon,
@@ -320,3 +321,12 @@ def test_cli_inspect(tmp_path, capsys):
     assert main(["inspect", str(tmp_path / "log.csv"), "--unit", "speed=km/h"]) == 0
     out = capsys.readouterr().out
     assert "mass_flow" in out and "harvest_logs:" in out
+
+
+def test_epoch_seconds_independent_of_resolution():
+    s = pd.Series(["2026-08-10T10:00:00+00:00", "2026-08-10T10:00:05+00:00"])
+    expected = [1786356000.0, 1786356005.0]
+    assert epoch_seconds(s).tolist() == expected
+    for unit in ("s", "ms", "us", "ns"):
+        dt = pd.to_datetime(s, utc=True).dt.as_unit(unit)
+        assert epoch_seconds(dt).tolist() == expected
