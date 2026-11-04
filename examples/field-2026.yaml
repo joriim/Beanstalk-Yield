@@ -33,9 +33,17 @@ imagery:
     indices: [NDVI, NDRE, CIre, NDMI]
     max_cloud_cover: 80        # scene pre-filter; pixels are masked with SCL
     min_valid_share: 0.8       # drop dates where < 80 % of cells are cloud-free
-  - kind: drone
-    path: data/demo-field-01/2026/mavic3m_2026-07-02_reflectance.tif
-    date: 2026-07-02
+  # Drone and PlanetScope reflectance rasters (one entry per date) are harmonised
+  # to Sentinel-2 and added to the image features; see docs/multisource.md.
+  # - kind: drone
+  #   path: data/demo-field-01/2026/mavic3m_2026-07-02_reflectance.tif
+  #   date: 2026-07-02
+  #   sensor: mavic3m            # bands G, R, RE, NIR (check your WebODM output)
+  # - kind: planetscope
+  #   path: data/demo-field-01/2026/ps_2026-07-03_SR_8b.tif
+  #   date: 2026-07-03
+  #   sensor: superdove
+  #   mask: data/demo-field-01/2026/ps_2026-07-03_udm2.tif
 
 # Crop calendar: enables season weather (ERA5), GDD stages and the RUE map at L5
 crop:

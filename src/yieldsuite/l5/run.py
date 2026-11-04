@@ -6,10 +6,13 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 
+import pandas as pd
+
 from ..config import FieldYearConfig
 from ..l4.grid import Grid
 from .fuse import FusionResult, fuse
 from .indices import DEFAULT_INDICES
+from .raster_features import raster_features
 from .sentinel2 import S2Request, fetch_features, load_features, save_features
 
 
@@ -48,22 +51,47 @@ def run_sentinel2_fusion(
     records=None,
     polygons=None,
 ) -> L5Outputs:
-    request = s2_request(config)
+    request = s2_request(config) if config.sentinel2 is not None else None
     out = Path(out_dir or config.output_dir)
     out.mkdir(parents=True, exist_ok=True)
     stem = f"L5_{config.field_id}_{config.year}"
 
-    features_path = Path(features_path) if features_path else out / f"{stem}_s2_features.csv"
-    if features_path.exists():
-        features = load_features(features_path)
-    else:
-        features = fetch_features(
-            grid, config.crs, request, connection=connection, workdir=out, batch=batch
+    parts = []
+    if request is not None:
+        features_path = Path(features_path) if features_path else out / f"{stem}_s2_features.csv"
+        if features_path.exists():
+            s2 = load_features(features_path)
+        else:
+            s2 = fetch_features(
+                grid, config.crs, request, connection=connection, workdir=out, batch=batch
+            )
+            save_features(s2, features_path)
+        parts.append(s2.assign(source="sentinel2"))
+    local_reports = []
+    for img in config.imagery:
+        if img.kind not in ("drone", "planetscope"):
+            continue
+        df, rep = raster_features(
+            img.path,
+            grid,
+            config.crs,
+            img.date,
+            source=img.kind,
+            sensor=img.sensor or ("mavic3m" if img.kind == "drone" else "superdove"),
+            bands=img.bands or None,
+            scale=img.scale,
+            mask_path=img.mask,
+            mask_clear_band=img.mask_clear_band,
         )
-        save_features(features, features_path)
+        parts.append(df)
+        local_reports.append(rep)
+    if not parts:
+        raise ValueError("no imagery configured (sentinel2, drone or planetscope)")
+    features = pd.concat(parts, ignore_index=True)
+    min_valid_share = config.sentinel2.min_valid_share if config.sentinel2 else 0.8
 
     corrections = _record_corrections(
-        l4, grid, features, records, polygons, method, config.sentinel2.min_valid_share
+        l4, grid, features, records, polygons, method, min_valid_share
     )
     if corrections.get("l4") is not None:
         l4 = corrections.pop("l4")
@@ -76,7 +104,7 @@ def run_sentinel2_fusion(
         features,
         method=method,
         residual=residual,
-        min_valid_share=config.sentinel2.min_valid_share,
+        min_valid_share=min_valid_share,
         request=request,
     )
     result.model_card.update(
@@ -86,6 +114,7 @@ def run_sentinel2_fusion(
         product_class=config.product_class.value,
     )
     result.model_card["record_corrections"] = corrections
+    result.model_card["local_imagery"] = local_reports
     card_path = out / f"{stem}_model_card.json"
     card_path.write_text(json.dumps(result.model_card, indent=2, default=str))
 

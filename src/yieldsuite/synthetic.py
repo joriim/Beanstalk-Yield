@@ -271,3 +271,91 @@ def quality_export(
             }
         )
     return export, pd.DataFrame(lab)
+
+
+def _reflectance_from_ndvi(ndvi, red=0.05):
+    nir = red * (1 + ndvi) / (1 - ndvi)
+    return red, nir
+
+
+def drone_ortho(
+    path,
+    ndvi_offset: float = 0.15,
+    ndvi_gain: float = 0.07,
+    pixel_m: float = 1.0,
+    noise: float = 0.01,
+    seed: int = 0,
+):
+    """Mavic 3M-like reflectance orthophoto (bands G, R, RE, NIR + alpha), EPSG:3067.
+
+    Its NDVI relates to yield with other coefficients than the Sentinel-2
+    features (0.2 + 0.06 x yield), so harmonisation has something to correct.
+    """
+    import rasterio
+    from rasterio.transform import from_origin
+
+    rng = np.random.default_rng(seed)
+    nx, ny = int(FIELD_W / pixel_m), int(FIELD_H / pixel_m)
+    xs = X0 + (np.arange(nx) + 0.5) * pixel_m
+    ys = Y0 + FIELD_H - (np.arange(ny) + 0.5) * pixel_m
+    xx, yy = np.meshgrid(xs, ys)
+    ndvi = np.clip(
+        ndvi_offset + ndvi_gain * true_yield(xx, yy) + rng.normal(0, noise, xx.shape), 0.05, 0.95
+    )
+    red, nir = _reflectance_from_ndvi(ndvi)
+    ndre = 0.6 * ndvi
+    rededge = nir * (1 - ndre) / (1 + ndre)
+    green = np.full_like(ndvi, 0.08)
+    alpha = np.full(ndvi.shape, 255, dtype="float32")
+    alpha[:, :3] = 0  # a strip outside the flight
+    stack = np.stack([green, np.full_like(ndvi, red), rededge, nir, alpha]).astype("float32")
+    with rasterio.open(
+        path,
+        "w",
+        driver="GTiff",
+        width=nx,
+        height=ny,
+        count=5,
+        dtype="float32",
+        crs="EPSG:3067",
+        transform=from_origin(X0, Y0 + FIELD_H, pixel_m, pixel_m),
+    ) as dst:
+        dst.write(stack)
+    return path
+
+
+def planetscope_sr(
+    path,
+    mask_path,
+    ndvi_offset: float = 0.18,
+    ndvi_gain: float = 0.065,
+    pixel_m: float = 3.0,
+    noise: float = 0.01,
+    seed: int = 1,
+):
+    """PlanetScope SuperDove-like 8-band SR (x10 000) with a cloud and a UDM2-style mask."""
+    import rasterio
+    from rasterio.transform import from_origin
+
+    rng = np.random.default_rng(seed)
+    nx, ny = int(FIELD_W / pixel_m), int(FIELD_H / pixel_m)
+    xs = X0 + (np.arange(nx) + 0.5) * pixel_m
+    ys = Y0 + FIELD_H - (np.arange(ny) + 0.5) * pixel_m
+    xx, yy = np.meshgrid(xs, ys)
+    ndvi = np.clip(
+        ndvi_offset + ndvi_gain * true_yield(xx, yy) + rng.normal(0, noise, xx.shape), 0.05, 0.95
+    )
+    red, nir = _reflectance_from_ndvi(ndvi)
+    bands = [np.full_like(ndvi, v) for v in (0.04, 0.05, 0.07, 0.08, 0.07)]  # cb, b, gI, g, y
+    bands += [np.full_like(ndvi, red), nir * (1 - 0.6 * ndvi) / (1 + 0.6 * ndvi), nir]
+    stack = np.stack(bands)
+    cloud = (xx > X0 + 160) & (yy > Y0 + 100)  # north-east corner under a cloud
+    stack[:, cloud] = 0.5  # bright and flat: would wreck NDVI if not masked
+    dn = np.round(stack * 10000).astype("uint16")
+    tf = from_origin(X0, Y0 + FIELD_H, pixel_m, pixel_m)
+    profile = {"driver": "GTiff", "width": nx, "height": ny, "crs": "EPSG:3067", "transform": tf}
+    with rasterio.open(path, "w", count=8, dtype="uint16", **profile) as dst:
+        dst.write(dn)
+    with rasterio.open(mask_path, "w", count=1, dtype="uint8", **profile) as dst:
+        dst.write((~cloud).astype("uint8")[None])
+    return path, mask_path

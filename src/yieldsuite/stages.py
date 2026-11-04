@@ -380,8 +380,8 @@ def stage_fusion(config: FieldYearConfig, state: dict) -> None:
         raise RuntimeError(
             "L5 needs an L4 yield grid; imagery-only relative maps are not built yet"
         )
-    if config.sentinel2 is None:
-        raise ValueError("L5 needs an imagery entry with kind: sentinel2")
+    if not config.imagery:
+        raise ValueError("L5 needs imagery: sentinel2, drone or planetscope")
     from .l5.run import run_sentinel2_fusion
 
     res = run_sentinel2_fusion(

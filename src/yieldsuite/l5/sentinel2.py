@@ -196,7 +196,8 @@ def fetch_features(
 def save_features(df: pd.DataFrame, path: str | Path) -> Path:
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    df[LONG_COLUMNS].to_csv(path, index=False)
+    cols = LONG_COLUMNS + (["source"] if "source" in df.columns else [])
+    df[cols].to_csv(path, index=False)
     return path
 
 
@@ -205,4 +206,6 @@ def load_features(path: str | Path) -> pd.DataFrame:
     missing = set(LONG_COLUMNS) - set(df.columns)
     if missing:
         raise ValueError(f"{path}: missing columns {sorted(missing)}")
-    return df[LONG_COLUMNS]
+    if "source" not in df.columns:
+        df["source"] = "sentinel2"
+    return df[LONG_COLUMNS + ["source"]]

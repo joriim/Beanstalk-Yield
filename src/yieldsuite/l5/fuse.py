@@ -12,6 +12,7 @@ from .. import __version__
 from ..l4.grid import Grid
 from .features import complete_rows, feature_matrix
 from .gapfill import SOURCE_FILLED, SOURCE_MEASURED, gap_fill
+from .harmonize import collapse, ensure_source, harmonize
 from .model import fit_yield_image_model
 from .sentinel2 import S2Request
 
@@ -57,9 +58,15 @@ def fuse(
 
     if per_date is None:
         per_date = method == "rf"
-    V, finfo = feature_matrix(features_long, n, min_valid_share=min_valid_share, per_date=per_date)
+    features_long = ensure_source(features_long)
+    sources_report = None
+    if features_long["source"].nunique() > 1:
+        features_long, sources_report = harmonize(features_long)
+    V, finfo = feature_matrix(
+        collapse(features_long), n, min_valid_share=min_valid_share, per_date=per_date
+    )
     if not finfo.dates_used:
-        raise ValueError("no Sentinel-2 date passed the cloud filter; widen the window")
+        raise ValueError("no image date passed the cloud filter; widen the window")
     has_features = complete_rows(V)
 
     rows, cols, xy = cell_centres(grid)
@@ -67,6 +74,18 @@ def fuse(
         y, V, reliable & has_features, rows=rows, cols=cols, method=method
     )
     prediction = model.predict(V)
+    ablation = _ablation(
+        features_long,
+        y,
+        reliable,
+        rows,
+        cols,
+        n,
+        method,
+        min_valid_share,
+        per_date,
+        model.stats.get("cv_rmse"),
+    )
     sigma_f = model.stats.get("cv_rmse", float("nan"))
     if not np.isfinite(sigma_f):
         sigma_f = model.stats["rmse"]
@@ -103,6 +122,11 @@ def fuse(
         "residual": residual,
         "features": model.feature_names,
         "fit": model.stats,
+        "sources": {
+            "used": sorted(features_long["source"].unique()),
+            "harmonisation": sources_report,
+            "ablation_cv_rmse": ablation,
+        },
         "sentinel2": {
             **(asdict(request) if request else {}),
             "dates_used": finfo.dates_used,
@@ -123,3 +147,32 @@ def fuse(
         "source_codes": {"0": "no value", "1": "measured (L4)", "2": "filled from imagery"},
     }
     return FusionResult(bands, card)
+
+
+def _ablation(
+    features_long, y, reliable, rows, cols, n, method, min_valid_share, per_date, cv_all
+) -> dict:
+    """Spatial-CV RMSE of the model without each non-reference source.
+
+    Positive ``gain`` means the source made the model better.
+    """
+    out = {}
+    sources = sorted(features_long["source"].unique())
+    if len(sources) < 2 or cv_all is None:
+        return out
+    for src in sources:
+        rest = features_long[features_long["source"] != src]
+        try:
+            V, info = feature_matrix(
+                collapse(rest), n, min_valid_share=min_valid_share, per_date=per_date
+            )
+            if not info.dates_used:
+                raise ValueError("no dates")
+            m = fit_yield_image_model(
+                y, V, reliable & complete_rows(V), rows=rows, cols=cols, method=method
+            )
+            cv = m.stats.get("cv_rmse")
+            out[src] = {"cv_rmse_without": cv, "gain": None if cv is None else cv - cv_all}
+        except ValueError as exc:
+            out[src] = {"cv_rmse_without": None, "note": f"model without it failed: {exc}"}
+    return out

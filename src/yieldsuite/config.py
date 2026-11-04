@@ -53,9 +53,15 @@ class HarvestLog:
 
 @dataclass
 class ImagerySource:
-    kind: str  # sentinel2 | drone
-    path: Path | None = None  # local orthomosaic (drone)
-    date: str | None = None
+    kind: str  # sentinel2 | drone | planetscope
+    path: Path | None = None  # local reflectance raster (drone orthomosaic, PlanetScope SR)
+    date: str | None = None  # acquisition date of a local raster
+    # local rasters: sensor preset (mavic3m | superdove | dove4), overrides, cloud mask
+    sensor: str | None = None
+    bands: dict[str, int] = field(default_factory=dict)  # green/red/rededge/nir -> band no.
+    scale: float | None = None  # reflectance = DN x scale
+    mask: Path | None = None  # e.g. PlanetScope UDM2; band ``mask_clear_band`` > 0 = clear
+    mask_clear_band: int = 1
     # Sentinel-2 via openEO
     start: str | None = None  # ISO date; default <year>-04-15
     end: str | None = None  # ISO date, exclusive; default <year>-09-15
@@ -170,8 +176,10 @@ class FieldYearConfig:
         if not self.harvest_logs and not self.imagery:
             problems.append("need at least one harvest log or imagery source")
         for img in self.imagery:
-            if img.kind not in ("sentinel2", "drone"):
+            if img.kind not in ("sentinel2", "drone", "planetscope"):
                 problems.append(f"unknown imagery kind {img.kind!r}")
+            elif img.kind != "sentinel2" and (img.path is None or img.date is None):
+                problems.append(f"{img.kind} imagery needs path and date")
         # A machine without a profile runs on defaults; the run's QA lists a warning.
         return problems
 
@@ -200,6 +208,8 @@ def load_config(path: str | Path) -> FieldYearConfig:
     for i in raw.get("imagery", []):
         i = dict(i)
         i["path"] = _path(base, i.get("path"))
+        i["mask"] = _path(base, i.get("mask"))
+        i["bands"] = dict(i.get("bands") or {})
         for key in ("date", "start", "end"):
             if i.get(key) is not None:
                 i[key] = str(i[key])
