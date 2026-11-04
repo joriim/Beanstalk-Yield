@@ -117,8 +117,8 @@ still needs a Copernicus Data Space account.
 Grid cells coincide with Sentinel-2 20 m pixels when the grid uses the UTM
 zone of the field's Sentinel-2 tile, 20 m cells and origin (0, 0). Finland
 spans zones 34–36: western Finland (e.g. Seinäjoki, tile 34VEQ) is
-`EPSG:32634`, central `EPSG:32635`, eastern `EPSG:32636`; the tile code is
-in the `s2-search` output. With EPSG:3067 each cell is averaged from the
+`EPSG:32634`, central `EPSG:32635`, eastern `EPSG:32636`. Choose it per
+field: `yieldsuite s2-search` prints the EPSG code of the field's tiles. With EPSG:3067 each cell is averaged from the
 pixels it overlaps, which smooths slightly.
 
 ## Not yet included

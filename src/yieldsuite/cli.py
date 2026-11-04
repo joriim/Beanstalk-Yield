@@ -218,9 +218,11 @@ def _cmd_s2_search(args) -> int:
         print(f"  {d['date']}  {d['cloud_cover']:5.1f} %  {d['tile']}")
     utm = res.get("utm_epsg") or {}
     if utm:
+        several = len(utm["zones_seen"]) > 1
+        note = f"; tiles of several zones: {utm['zones_seen']}" if several else ""
         print(
-            f"grid CRS aligned with these Sentinel-2 pixels: {utm['epsg']} (UTM zone "
-            f"{utm['zone']}){'; tiles of several zones: ' + str(utm['zones_seen']) if len(utm['zones_seen']) > 1 else ''}"
+            f"grid CRS aligned with these Sentinel-2 pixels: {utm['epsg']} "
+            f"(UTM zone {utm['zone']}){note}"
         )
     return 0
 
