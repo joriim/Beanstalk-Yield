@@ -94,7 +94,7 @@ harvest_logs:
 ```
 
 The records enter at L2 (the vendor's yields are taken as delay-corrected),
-mass is rebuilt as yield x distance x swath, and Miiro's own quality flags are
+mass is rebuilt as yield x distance x swath, and the suite's own quality flags are
 set from the data; the vendor's other verdicts (pass edge, outlier, speed) are
 not copied, so the two can be compared.
 

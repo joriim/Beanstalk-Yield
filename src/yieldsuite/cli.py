@@ -535,9 +535,9 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def _prog_name() -> str:
-    """The command as invoked (yieldsuite or miiro); 'python -m' shows yieldsuite."""
+    """The command as invoked; 'python -m' shows yieldsuite."""
     name = Path(sys.argv[0]).name if sys.argv and sys.argv[0] else ""
-    return name if name in ("yieldsuite", "miiro") else "yieldsuite"
+    return name if name == "yieldsuite" else "yieldsuite"
 
 
 def main(argv: list[str] | None = None) -> int:

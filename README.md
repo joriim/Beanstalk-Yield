@@ -1,17 +1,16 @@
-# Miiro
+# Yield Data Suite
 
 **Vision: the Linux of modelling agricultural yield and its causes.** An
 open, shared core that anyone can run, inspect and improve, with connectors
 for every data source and many front ends on top. See
 [docs/vision.md](docs/vision.md).
 
-Miiro is an open-source processing chain for **as-good-as-achievable yield maps** from
+Yield Data Suite is an open-source processing chain for **as-good-as-achievable yield maps** from
 combine harvester logs, weighed loads, drone and public satellite data
 (Sentinel-2), together with the field weather, soil, terrain and grain-quality
 data that explain them.
 
-The Python package and command are `yieldsuite` (the command is also
-available as `miiro`).
+The Python package and command are `yieldsuite`.
 
 The chain follows six processing levels, modelled on NASA EOSDIS data levels.
 Each level has a defined input, model, output and uncertainty, so any

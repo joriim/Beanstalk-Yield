@@ -1,13 +1,13 @@
 # Vision
 
-**Miiro aims to be the Linux of modelling agricultural yield and its causes:**
+**Yield Data Suite aims to be the Linux of modelling agricultural yield and its causes:**
 an open, shared core that anyone can run, inspect and improve, and that
 farmers, advisers, researchers and companies build on instead of each
 rebuilding it behind closed doors.
 
 ## What the comparison means
 
-| Linux | Miiro |
+| Linux | Yield Data Suite |
 |---|---|
 | An open kernel that every distribution shares | An open core: processing levels L0–L5, the data model, quality flags, uncertainty and provenance. Every yield map can be traced back to raw data and reprocessed when a model improves. |
 | Drivers for every kind of hardware | Readers and connectors for every data source: combine logs from any brand, scale tickets, grain-quality analysers, drones, Sentinel-2 and PlanetScope, weather, soil, terrain, machine clouds and farm software. |
@@ -17,7 +17,7 @@ rebuilding it behind closed doors.
 
 ## Yield and its causes
 
-A yield map says *how much* grew where. Miiro's goal is also to explain
+A yield map says *how much* grew where. The suite's goal is also to explain
 *why*: to separate the effects of
 
 - **weather**: radiation (PAR), temperature sums, water balance, stress periods;
