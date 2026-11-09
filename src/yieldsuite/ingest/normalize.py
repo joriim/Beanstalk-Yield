@@ -104,6 +104,24 @@ class IngestOptions:
     bushel_weight_lb: float | None = None
     vendor_reference_moisture_pct: float | None = None
     default_swath_m: float | None = None
+    where: dict = field(default_factory=dict)
+    ignore_columns: list[str] = field(default_factory=list)
+    header_up_values: list[str] = field(default_factory=list)
+    time_zone: str | None = None
+
+
+def _select_rows(df: pd.DataFrame, where: dict, report: IngestReport) -> pd.DataFrame:
+    """Keep rows of a multi-field export whose column matches the value(s), as text."""
+    for column, wanted in (where or {}).items():
+        if column not in df.columns:
+            raise ValueError(f"where: column {column!r} not in the file")
+        values = wanted if isinstance(wanted, (list, tuple, set)) else [wanted]
+        keep = df[column].astype(str).str.strip().isin({str(v).strip() for v in values})
+        report.derived.append(f"kept {int(keep.sum())} of {len(df)} rows where {column} = {wanted}")
+        df = df[keep.to_numpy()]
+    if df.empty:
+        raise ValueError(f"no rows left after where: {where}")
+    return df.reset_index(drop=True)
 
 
 def _project(a, b, src: str, dst: str):
@@ -180,9 +198,17 @@ def _unit(
     return unit
 
 
-def _times(df: pd.DataFrame, m: dict, report: IngestReport) -> np.ndarray:
+def _times(
+    df: pd.DataFrame, m: dict, report: IngestReport, time_zone: str | None = None
+) -> np.ndarray:
     if "time" in m:
         col = df[m["time"]]
+        if pd.api.types.is_datetime64_any_dtype(col):
+            if col.dt.tz is None:
+                col = col.dt.tz_localize(time_zone or "UTC", ambiguous="NaT", nonexistent="NaT")
+                if time_zone:
+                    report.derived.append(f"timestamps without offset read as {time_zone}")
+            return epoch_seconds(col.dt.tz_convert("UTC"))
         if pd.api.types.is_numeric_dtype(col):
             v = col.to_numpy(dtype=float)
             med = np.nanmedian(v)
@@ -199,7 +225,16 @@ def _times(df: pd.DataFrame, m: dict, report: IngestReport) -> np.ndarray:
         if "date" in m and text.str.fullmatch(r"\d{1,2}:\d{2}(:\d{2}(\.\d+)?)?").all():
             text = df[m["date"]].astype(str).str.strip() + " " + text
         dayfirst = bool(text.str.match(r"^\d{1,2}[./]\d{1,2}[./]\d{2,4}").any())
-        parsed = pd.to_datetime(text, dayfirst=dayfirst, utc=True, errors="coerce", format="mixed")
+        if time_zone:
+            parsed = pd.to_datetime(text, dayfirst=dayfirst, errors="coerce", format="mixed")
+            if getattr(parsed.dt, "tz", None) is None:
+                parsed = parsed.dt.tz_localize(time_zone, ambiguous="NaT", nonexistent="NaT")
+                report.derived.append(f"timestamps without offset read as {time_zone}")
+            parsed = parsed.dt.tz_convert("UTC")
+        else:
+            parsed = pd.to_datetime(
+                text, dayfirst=dayfirst, utc=True, errors="coerce", format="mixed"
+            )
         if parsed.isna().mean() > 0.05:
             raise ValueError(f"could not parse time column {m['time']!r}")
         return epoch_seconds(parsed)
@@ -215,8 +250,10 @@ def normalize(
     df: pd.DataFrame, meta: dict, opts: IngestOptions, field_crs: str, source: str = ""
 ) -> tuple[pd.DataFrame, IngestReport]:
     report = IngestReport(source=source, format=meta.get("format", "?"), rows_in=len(df))
+    df = _select_rows(df, opts.where, report)
     explicit = {**meta.get("mapping", {}), **opts.columns}
-    m = match_columns(list(df.columns), explicit)
+    candidates = [c for c in df.columns if c not in set(opts.ignore_columns)]
+    m = match_columns(candidates, explicit)
     report.mapping = {k: v for k, v in m.items() if not v.startswith("__")}
     report.unmapped_columns = [
         c for c in df.columns if c not in m.values() and not c.startswith("__")
@@ -224,7 +261,7 @@ def normalize(
     preset = meta.get("units", {})
     bw = bushel_weight(opts.crop, opts.bushel_weight_lb)
 
-    t = _times(df, m, report)
+    t = _times(df, m, report, opts.time_zone)
 
     # Positions
     pos_crs = opts.position_crs or meta.get("crs")
@@ -318,7 +355,11 @@ def normalize(
     # Header / work state
     if "header" in m:
         raw = df[m["header"]]
-        if pd.api.types.is_numeric_dtype(raw):
+        if opts.header_up_values:
+            up = {str(v).strip().lower() for v in opts.header_up_values}
+            header = ~raw.astype(str).str.strip().str.lower().isin(up).to_numpy()
+            report.derived.append(f"header up where {m['header']} is one of {sorted(up)}")
+        elif pd.api.types.is_numeric_dtype(raw):
             header = raw.to_numpy(dtype=float) > 0
         else:
             header = raw.astype(str).str.strip().str.lower().isin(_TRUE).to_numpy()

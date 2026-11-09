@@ -392,7 +392,7 @@ def _cmd_notify_test(args) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(description=__doc__)
+    p = argparse.ArgumentParser(prog=_prog_name(), description=__doc__)
     p.add_argument("--version", action="version", version=f"yieldsuite {__version__}")
     sub = p.add_subparsers(dest="command", required=True)
 
@@ -532,6 +532,12 @@ def build_parser() -> argparse.ArgumentParser:
     n.add_argument("config", nargs="?")
     n.set_defaults(func=_cmd_notify_test)
     return p
+
+
+def _prog_name() -> str:
+    """The command as invoked (yieldsuite or miiro); 'python -m' shows yieldsuite."""
+    name = Path(sys.argv[0]).name if sys.argv and sys.argv[0] else ""
+    return name if name in ("yieldsuite", "miiro") else "yieldsuite"
 
 
 def main(argv: list[str] | None = None) -> int:

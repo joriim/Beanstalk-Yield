@@ -330,3 +330,46 @@ def test_epoch_seconds_independent_of_resolution():
     for unit in ("s", "ms", "us", "ns"):
         dt = pd.to_datetime(s, utc=True).dt.as_unit(unit)
         assert epoch_seconds(dt).tolist() == expected
+
+
+def test_multi_field_point_export_with_status_text_and_local_time():
+    """Exports covering many parcels: row filter, ignored raw flow, header from a
+    drop-reason text, naive local timestamps."""
+    from yieldsuite.ingest.normalize import IngestOptions, normalize
+
+    n = 6
+    df = pd.DataFrame(
+        {
+            "pid": ["111"] * n + ["222"] * n,
+            "time_local": pd.date_range("2026-08-28 12:00:00", periods=2 * n, freq="1s"),
+            "yield_raw": [9000.0] * (2 * n),
+            "flow_raw": [600.0] * (2 * n),
+            "moisture_pct": [14.0] * (2 * n),
+            "dist_m": [1.2] * (2 * n),
+            "width_m": [7.25] * (2 * n),
+            "drop_reason": ["header_up", "", "", "pass_edge", "", ""] * 2,
+            "X": np.arange(2 * n) * 1.2 + 276000.0,
+            "Y": np.full(2 * n, 6944000.0),
+        }
+    )
+    opts = IngestOptions(
+        columns={"yield_dry": "yield_raw", "header": "drop_reason", "x": "X", "y": "Y"},
+        units={"yield_dry": "kg/ha", "distance": "m", "swath": "m", "moisture": "%"},
+        where={"pid": 111},
+        ignore_columns=["flow_raw"],
+        header_up_values=["header_up"],
+        time_zone="Europe/Helsinki",
+        vendor_reference_moisture_pct=14,
+    )
+    out, report = normalize(df, {"format": "vector"}, opts, "EPSG:3067")
+    assert len(out) == n
+    assert report.input_family == "yield_point (yield_dry)"
+    assert "mass_flow" not in report.mapping
+    # only "header_up" means up; an empty reason or another reason is harvesting
+    assert out["header_down"].tolist() == [False, True, True, True, True, True]
+    # 12:00 EEST is 09:00 UTC
+    assert out["t"].iloc[0] == pd.Timestamp("2026-08-28 09:00:00", tz="UTC").timestamp()
+    # mass rebuilt as 9 t/ha x 1.2 m x 7.25 m per second
+    assert np.isclose(out["mass_flow_wet"].iloc[1], 0.1 * 9.0 * 1.2 * 7.25)
+    with pytest.raises(ValueError, match="no rows left"):
+        normalize(df, {"format": "vector"}, IngestOptions(where={"pid": "999"}), "EPSG:3067")

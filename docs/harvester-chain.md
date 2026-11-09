@@ -71,6 +71,33 @@ harvest_logs:
 Scale tickets (`scale_tickets:`) are a CSV with `mass_kg`, and optionally
 `machine_id` and `moisture_pct`.
 
+## Multi-field point exports
+
+Some services deliver one file of yield points for many parcels, with the
+vendor's own quality verdict per point and a raw sensor flow next to the
+finished yield. Pick the field's rows, take the finished yield, and read the
+header state from the verdict:
+
+```yaml
+harvest_logs:
+  - path: data/yield_2026_points.gpkg
+    machine_id: combine-a
+    layer: points
+    where: {pid: "1641431471"}           # one parcel out of the export
+    ignore_columns: [flow_raw, yield_rel] # raw flow of unknown unit: not used
+    columns: {time: time_local, yield_dry: yield_raw, moisture: moisture_pct,
+              distance: dist_m, swath: width_m, header: drop_reason, gnss_quality: gnss_q}
+    units: {yield_dry: kg/ha, distance: m, swath: m, moisture: "%"}
+    header_up_values: [header_up]         # only this verdict means "header up"
+    vendor_reference_moisture_pct: 14
+    time_zone: Europe/Helsinki            # timestamps carry no offset
+```
+
+The records enter at L2 (the vendor's yields are taken as delay-corrected),
+mass is rebuilt as yield x distance x swath, and Miiro's own quality flags are
+set from the data; the vendor's other verdicts (pass edge, outlier, speed) are
+not copied, so the two can be compared.
+
 ## What each stage does
 
 | Stage | Operations |

@@ -30,6 +30,10 @@ def _options(log: HarvestLog) -> IngestOptions:
         bushel_weight_lb=log.bushel_weight_lb,
         vendor_reference_moisture_pct=log.vendor_reference_moisture_pct,
         default_swath_m=log.default_swath_m,
+        where=log.where,
+        ignore_columns=list(log.ignore_columns),
+        header_up_values=list(log.header_up_values),
+        time_zone=log.time_zone,
     )
 
 

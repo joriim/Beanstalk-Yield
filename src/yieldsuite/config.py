@@ -32,6 +32,12 @@ class HarvestLog:
     bushel_weight_lb: float | None = None
     vendor_reference_moisture_pct: float | None = None  # moisture of dry/standard yields
     default_swath_m: float | None = None  # when the file has no width column
+    # Multi-field exports: keep only rows whose column equals the value (or one of a list)
+    where: dict[str, object] = field(default_factory=dict)
+    ignore_columns: list[str] = field(default_factory=list)  # never match these columns
+    # Header given as a status/reason text: these values mean "header up", others "down"
+    header_up_values: list[str] = field(default_factory=list)
+    time_zone: str | None = None  # zone of timestamps without an offset (default UTC)
     layer: str | None = None  # GeoPackage layer
     sheet: str | int | None = None  # Excel sheet
     delimiter: str | None = None
