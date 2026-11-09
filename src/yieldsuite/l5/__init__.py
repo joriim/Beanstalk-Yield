@@ -7,10 +7,8 @@ chains them.
 With L3 records (a chain run): ``residual_shift`` (check of the delay against
 the image) and ``level_pass_stripes`` (random pass effect, field total kept).
 
-Planned (see docs/design/processing-levels.md, "L4 -> L5"):
-
-- ``zones``: multi-year relative yield + imagery -> KM-sPC zones.
-- drone orthomosaic features (harmonised to Sentinel-2 reflectance).
+Drone and PlanetScope rasters are harmonised to Sentinel-2 in ``harmonize``;
+multi-year KM-sPC zones are in ``yieldsuite.zones``.
 
 Filled cells are always labelled and never reused as training data (design rule 6).
 """
@@ -25,17 +23,6 @@ from .sentinel2 import S2Request
 from .shift import residual_shift
 from .stripes import level_pass_stripes
 
-
-def _todo(name: str):
-    def fn(*args, **kwargs):
-        raise NotImplementedError(f"L5 {name} is not implemented yet")
-
-    fn.__name__ = name
-    return fn
-
-
-zones = _todo("zones")
-
 __all__ = [
     "FusionResult",
     "S2Request",
@@ -46,5 +33,4 @@ __all__ = [
     "gap_fill",
     "level_pass_stripes",
     "residual_shift",
-    "zones",
 ]

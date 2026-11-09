@@ -34,8 +34,10 @@ One headless Python core, three front ends.
 | Scale tickets | L3 | `yieldsuite.ingest.scale` |
 | Sentinel-2 L2A | L5 | `yieldsuite.l5.sentinel2` (openEO) |
 | ERA5 / ERA5-Land weather (Open-Meteo) | L5 agroclimate | `yieldsuite.weather` |
-| Drone orthomosaics (WebODM) | L5 | planned |
-| Field parcels, elevation, soil (Ruokavirasto, MML, GTK) | L0 / zones | planned |
+| Drone orthomosaics (WebODM) | L0 → L5 | `yieldsuite.drone.webodm`, `yieldsuite.l5.harmonize` |
+| Field parcels (Ruokavirasto), elevation (NLS 2 m DEM) | L0 / zones | `yieldsuite.public.parcels`, `yieldsuite.public.nls_dem`, `yieldsuite.covariates.terrain` |
+| Grain quality (GrainSense) | Q1–Q4 | `yieldsuite.quality` |
+| Soil (GTK) | zones | planned |
 
 Weather is per field, not per cell: it explains the season (PAR, GDD, stages,
 water balance) and, with Sentinel-2 fAPAR, gives a per-cell RUE map.

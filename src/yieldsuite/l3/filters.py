@@ -121,6 +121,33 @@ def neighbour_median_residual(x, y, values, radius_m: float):
         return np.where(ok & (scale > 0), resid / scale, 0.0)
 
 
+def neighbour_median_at(
+    x, y, values, targets_x, targets_y, radius_m: float, min_neighbours: int = 4
+):
+    """Median of ``values`` within ``radius_m`` of each target point.
+
+    Targets with fewer than ``min_neighbours`` values in range get NaN, so the
+    caller can fall back to a wider estimate (e.g. the field median).
+    """
+    import pandas as pd
+    from shapely import STRtree, points
+
+    v = np.asarray(values, float)
+    out = np.full(np.size(targets_x), np.nan)
+    if v.size == 0 or out.size == 0:
+        return out
+    tree = STRtree(points(np.asarray(x, float), np.asarray(y, float)))
+    tgt = points(np.asarray(targets_x, float), np.asarray(targets_y, float))
+    left, right = tree.query(tgt, predicate="dwithin", distance=radius_m)
+    if left.size == 0:
+        return out
+    grouped = pd.Series(v[right]).groupby(left)
+    med, count = grouped.median(), grouped.count()
+    enough = count.to_numpy() >= min_neighbours
+    out[med.index.to_numpy()[enough]] = med.to_numpy()[enough]
+    return out
+
+
 def flag_local_outliers(
     x,
     y,

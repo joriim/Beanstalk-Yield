@@ -31,6 +31,7 @@ from .l3.filters import (
     flag_global_outliers,
     flag_local_outliers,
     flag_speed,
+    neighbour_median_at,
 )
 from .l3.reconcile import reconciliation_factor
 from .l4.grid import Grid, apportion_mass, check_mass_conservation
@@ -274,16 +275,42 @@ def stage_clean(config: FieldYearConfig, state: dict) -> None:
 
     # Reconciliation uses all harvested mass, flagged records included, because
     # they still carried grain to the tank. Outlier records are the exception:
-    # their logged value is a sensor error, so they count with the field median
-    # yield over their effective area instead of their logged mass.
+    # their logged value is a sensor error, so they count with the median yield
+    # of the clean records around them (field median where too few are near)
+    # over their effective area instead of their logged mass.
     outlier = (flags & int(Flag.GLOBAL_OUTLIER | Flag.LOCAL_OUTLIER)) != 0
-    median_y = (
-        float(np.nanmedian(rec["yield"].to_numpy()[flags == 0])) if (flags == 0).any() else 0.0
-    )
+    clean = flags == 0
+    yields = rec["yield"].to_numpy()
+    median_y = float(np.nanmedian(yields[clean])) if clean.any() else 0.0
+    imputed = np.full(len(rec), median_y)
+    n_local = 0
+    if outlier.any() and clean.sum() >= 4:
+        h = rec["heading"].to_numpy()
+        half = rec["length"].to_numpy() / 2
+        cx = rec["hx"].to_numpy() - np.sin(h) * half
+        cy = rec["hy"].to_numpy() - np.cos(h) * half
+        local = neighbour_median_at(
+            cx[clean],
+            cy[clean],
+            yields[clean],
+            cx[outlier],
+            cy[outlier],
+            2.0 * config.local_outlier_radius_m,
+        )
+        n_local = int(np.isfinite(local).sum())
+        imputed[outlier] = np.where(np.isfinite(local), local, median_y)
     monitor_mass = np.where(
-        outlier, median_y * rec["effective_area"].to_numpy() / 10.0, rec["mass_kg"].to_numpy()
+        outlier, imputed * rec["effective_area"].to_numpy() / 10.0, rec["mass_kg"].to_numpy()
     )
     rec["mass_kg_for_reconciliation"] = monitor_mass
+    state["qa"]["outlier_mass"] = {
+        "records": int(outlier.sum()),
+        "imputed_from_neighbours": n_local,
+        "imputed_from_field_median": int(outlier.sum()) - n_local,
+        "radius_m": 2.0 * config.local_outlier_radius_m,
+        "logged_kg": float(rec["mass_kg"].to_numpy()[outlier].sum()),
+        "imputed_kg": float(monitor_mass[outlier].sum()),
+    }
     k_factors: dict[str, float] = {}
     if config.scale_tickets is not None:
         tickets = read_scale_tickets(config.scale_tickets, config.reference_moisture_pct)

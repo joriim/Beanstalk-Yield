@@ -146,8 +146,11 @@ applied the delay (entry level L2) are not shifted again.
 Reconciliation uses all harvested mass, including flagged records, because
 they still carried grain to the tank. The exception is outlier records
 (global or local): their logged value is a sensor error, so they enter the
-reconciliation with the field median yield over their effective area. Without
-this, 15 spikes in the synthetic field biased the whole map by −1 %.
+reconciliation with the median yield of the clean records around them
+(within twice the local-outlier radius; the field median where fewer than four
+are in range) over their effective area. Without this, 15 spikes in the
+synthetic field biased the whole map by −1 %. The QA report's `outlier_mass`
+entry gives the logged and imputed mass.
 
 ## Outputs
 
