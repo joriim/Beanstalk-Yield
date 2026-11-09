@@ -465,6 +465,35 @@ def build_parser() -> argparse.ArgumentParser:
     z.add_argument("--crs", help="CRS if the rasters do not carry one")
     z.set_defaults(func=_cmd_zones)
 
+    nb = sub.add_parser("nbalance", help="nitrogen removal and balance per management zone")
+    nb.add_argument("--zones", required=True, help="zone GeoTIFF from yieldsuite zones")
+    nb.add_argument("--yield-map", required=True, help="L4/L5 GeoTIFF of the season")
+    nb.add_argument("--quality", help="Q4 GeoTIFF (measured protein / N uptake)")
+    nb.add_argument("--grain-n-pct", type=float, help="grain N, %% of dry matter (protein / 6.25)")
+    nb.add_argument("--moisture", type=float, default=14.0, help="moisture of the yield map, %%")
+    nb.add_argument("--applied-n", help="N applied, kg/ha: one value or per zone (1=110,2=90)")
+    nb.add_argument("--out", default="nbalance")
+    nb.add_argument("--stem", default="nbalance")
+    nb.set_defaults(func=_cmd_nbalance)
+
+    rx = sub.add_parser("prescription", help="variable-rate prescription by zone")
+    rx.add_argument("--zones", required=True, help="zone GeoTIFF from yieldsuite zones")
+    rx.add_argument("--rates", help="rate per zone in kg/ha, e.g. 1=120,2=100,3=80")
+    rx.add_argument("--from-nbalance", help="JSON from yieldsuite nbalance: rates follow removal")
+    rx.add_argument("--mean-rate", type=float, help="field mean rate, kg/ha (with --from-nbalance)")
+    rx.add_argument("--min-rate", type=float)
+    rx.add_argument("--max-rate", type=float)
+    rx.add_argument("--product", required=True, help="product name, e.g. 'YaraMila 27-3-3'")
+    rx.add_argument("--boundary", help="field boundary (needed for ISOXML)")
+    rx.add_argument("--format", default="gpkg,shp", help="gpkg, shp, isoxml (comma-separated)")
+    rx.add_argument("--default-rate", type=float, default=0.0, help="rate outside zones, kg/ha")
+    rx.add_argument("--task-name", default="Variable rate")
+    rx.add_argument("--field-name")
+    rx.add_argument("--crs", help="CRS if the zone raster does not carry one")
+    rx.add_argument("--out", default="prescription")
+    rx.add_argument("--stem", default="prescription")
+    rx.set_defaults(func=_cmd_prescription)
+
     gs = sub.add_parser("grainsense", help="list or export GrainSense Flow (combine) sessions")
     gs.add_argument("action", choices=["sessions", "export"])
     gs.add_argument("--start", help="ISO time, e.g. 2026-08-01T00:00:00Z")
@@ -532,6 +561,136 @@ def build_parser() -> argparse.ArgumentParser:
     n.add_argument("config", nargs="?")
     n.set_defaults(func=_cmd_notify_test)
     return p
+
+
+def _zone_layer(path):
+    from .l4.io import read_bands
+
+    b, g, crs = read_bands(path, require_yield=False)
+    if "zone" not in b:
+        raise ValueError(f"{path}: no band described as 'zone' (run yieldsuite zones)")
+    return b["zone"], g, crs
+
+
+def _cmd_nbalance(args) -> int:
+    import json
+
+    from .l4.io import read_bands
+    from .prescription import n_removal, parse_rates, zone_table
+    from .zones import place
+
+    try:
+        zones, zgrid, crs = _zone_layer(args.zones)
+        yb, yg, _ = read_bands(args.yield_map)
+        y = place(yb["yield"], yg, zgrid)
+        uptake = protein = None
+        if args.quality:
+            qb, qg, _ = read_bands(args.quality, require_yield=False)
+            if "n_uptake_kg_ha" in qb:
+                uptake = place(qb["n_uptake_kg_ha"], qg, zgrid)
+            if "protein_pct_dm" in qb:
+                protein = place(qb["protein_pct_dm"], qg, zgrid)
+        removed, how = n_removal(
+            y,
+            n_uptake_kg_ha=uptake,
+            grain_n_pct_dm=args.grain_n_pct,
+            moisture_pct=args.moisture,
+        )
+        applied = None
+        if args.applied_n:
+            applied = (
+                parse_rates(args.applied_n) if "=" in args.applied_n else float(args.applied_n)
+            )
+        table = zone_table(
+            zones,
+            zgrid,
+            y,
+            n_removed_kg_ha=removed,
+            protein_pct_dm=protein,
+            applied_n_kg_ha=applied,
+        )
+    except (ValueError, FileNotFoundError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    table.notes.append(f"N removal from {how}")
+    out = Path(args.out)
+    out.mkdir(parents=True, exist_ok=True)
+    p = out / f"{args.stem}.json"
+    p.write_text(json.dumps(table.as_dict(), indent=2))
+    print(f"N removal from {how}")
+    for r in table.rows:
+        nan = float("nan")
+        line = (
+            f"  zone {r['zone']}: {r['area_ha']:.2f} ha, "
+            f"yield {r['yield_t_ha'] or nan:.2f} t/ha, "
+            f"N removed {r.get('n_removed_kg_ha') or nan:.0f} kg/ha"
+        )
+        if "n_balance_kg_ha" in r:
+            line += f", balance {r['n_balance_kg_ha']:+.0f} kg/ha"
+        print(line)
+    print(f"wrote {p}")
+    return 0
+
+
+def _cmd_prescription(args) -> int:
+    import json
+
+    from .prescription import (
+        ZoneTable,
+        parse_rates,
+        prescription_polygons,
+        rates_from_removal,
+        write_prescription,
+    )
+
+    try:
+        zones, zgrid, crs = _zone_layer(args.zones)
+        crs = args.crs or crs
+        meta = {}
+        if args.rates:
+            rates = parse_rates(args.rates)
+            meta["rates_from"] = "given per zone"
+        elif args.from_nbalance:
+            if args.mean_rate is None:
+                raise ValueError("--from-nbalance needs --mean-rate")
+            table = ZoneTable(json.loads(Path(args.from_nbalance).read_text())["zones"])
+            rates = rates_from_removal(table, args.mean_rate, args.min_rate, args.max_rate)
+            meta["rates_from"] = (
+                f"proportional to N removal, mean {args.mean_rate} kg/ha"
+                f", limits {args.min_rate}-{args.max_rate}"
+            )
+        else:
+            raise ValueError("give --rates or --from-nbalance")
+        presc = prescription_polygons(zones, zgrid, crs, rates, args.product)
+        boundary = None
+        if args.boundary:
+            from .public.boundary import load_boundary
+
+            boundary = load_boundary(args.boundary, crs)
+        formats = [f.strip() for f in args.format.split(",") if f.strip()]
+        files = write_prescription(
+            presc,
+            args.out,
+            args.stem,
+            formats,
+            boundary=boundary,
+            task_name=args.task_name,
+            field_name=args.field_name or args.stem,
+            product=args.product,
+            default_rate=args.default_rate,
+            meta=meta,
+        )
+    except (ValueError, FileNotFoundError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    s = json.loads(Path(files["summary"]).read_text())
+    for z in s["zones"]:
+        print(f"  zone {z['zone']}: {z['rate_kg_ha']:.0f} kg/ha on {z['area_ha']:.2f} ha")
+    print(f"mean {s['mean_rate_kg_ha']:.0f} kg/ha, total {s['total_kg']:.0f} kg of {args.product}")
+    for k, v in files.items():
+        print(f"  {k:8} {v}")
+    print("Check the file on the target terminal before use.")
+    return 0
 
 
 def _prog_name() -> str:

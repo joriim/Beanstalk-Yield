@@ -95,3 +95,45 @@ alarms elsewhere.
 
 Zones describe where yield has been consistently high or low; whether to
 manage them differently (seed, nitrogen, drainage) is an agronomic decision.
+
+## From zones to action: N balance and prescriptions
+
+**Nitrogen removal and balance per zone** (`yieldsuite nbalance`). N removed
+with the grain comes from the measured protein of a Q4 map (GrainSense) where
+there is one, otherwise from yield × dry-matter share × a grain N content you
+state (`--grain-n-pct`, protein % of dry matter / 6.25); there is no silent
+default. With the N applied (one value or per zone) the table also gives the
+balance, applied − removed.
+
+```bash
+yieldsuite nbalance --zones zones/zones.tif --yield-map output/L4_field_2026.tif \
+    --quality output/Q4_field_2026.tif --applied-n 110 --out nbalance
+```
+
+**Variable-rate prescription by zone** (`yieldsuite prescription`). Rates are
+given per zone (`--rates 1=120,2=100,3=80`, kg/ha of product) or follow the
+zones' N removal (`--from-nbalance nbalance/nbalance.json --mean-rate 300`:
+rate proportional to removal, area-weighted mean kept, then clipped to
+`--min-rate`/`--max-rate`). Derived rates are a transparent starting point
+for an adviser, not a recommendation: soil supply, previous crop and legal
+limits (in Finland the nitrate decree and the CAP conditions) are not in it.
+
+```bash
+yieldsuite prescription --zones zones/zones.tif --from-nbalance nbalance/nbalance.json \
+    --mean-rate 300 --min-rate 200 --max-rate 400 --product "YaraMila 27-3-3" \
+    --boundary data/boundary.gpkg --format gpkg,shp,isoxml --out rx
+```
+
+Outputs:
+
+| File | Content |
+|---|---|
+| `rx.gpkg` | zone polygons with `RATE` (kg/ha), `PRODUCT`, `area_ha`, field CRS |
+| `rx_shp/rx.shp` | the same in WGS84 with short attribute names (`ZONE`, `RATE`), the form most terminals read |
+| `rx_isoxml/TASKDATA/TASKDATA.XML` | ISO 11783-10 task: partfield with the boundary, one treatment zone per management zone with a setpoint mass per area (DDI 6, mg/m²), a default zone for outside the zones and lost position |
+| `rx.json` | rates, areas, mean rate and total product |
+
+Terminals differ in what they accept (polygon or grid treatment zones,
+shapefile attribute names, ISOXML version). Load the file on the target
+terminal and check the rates before driving.
+

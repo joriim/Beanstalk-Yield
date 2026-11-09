@@ -283,21 +283,9 @@ def write_zones(result: ZoneResult, grid: Grid, crs: str, out_dir, stem: str) ->
     }
     files = {"raster": str(write_cog(bands, grid, crs, out / f"{stem}.tif", names=names))}
     try:
-        import geopandas as gpd
-        import rasterio.features
-        from rasterio.transform import Affine
-        from shapely.geometry import shape
+        from .prescription import zone_polygons
 
-        polys = [
-            {"zone": int(v), "geometry": shape(g)}
-            for g, v in rasterio.features.shapes(
-                result.zones.astype(np.int16),
-                mask=result.zones > 0,
-                transform=Affine(*grid.transform),
-            )
-        ]
-        gdf = gpd.GeoDataFrame(polys, crs=crs).dissolve(by="zone").reset_index()
-        gdf["area_ha"] = gdf.area / 1e4
+        gdf = zone_polygons(result.zones, grid, crs)
         p = out / f"{stem}.gpkg"
         gdf.to_file(p, driver="GPKG")
         files["polygons"] = str(p)

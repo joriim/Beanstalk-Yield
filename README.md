@@ -104,6 +104,10 @@ Pre-alpha. Working end to end:
   stability classes (`yieldsuite zones`, MCP `make_zones`); terrain covariates
   (elevation, slope, TPI, wetness index) from a DEM file or the NLS 2 m DEM
   fetched automatically (`yieldsuite terrain`, needs a free NLS API key).
+- **N balance and prescriptions** ([docs/zones.md](docs/zones.md)): N removal
+  per zone from measured protein or yield, balance against N applied, and
+  variable-rate prescriptions by zone as GeoPackage, Shapefile or ISOXML
+  TaskData (`yieldsuite nbalance`, `yieldsuite prescription`).
 - **Farm-data MCP server** (`yieldsuite mcp --store <root>`): list fields and
   products, QA, versioned machine profiles, immutable L0 upload, scale
   tickets, QA approvals, `run_chain` with optional Slack summary; every write

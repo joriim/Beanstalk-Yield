@@ -23,8 +23,8 @@ unverified.
 
 | Function | Seen in | Priority |
 |---|---|---|
-| Variable-rate prescription export (ISOXML task data or shapefile, by zone) | xarvio, GeoPard, Deere | High. This is what turns a map into action on the farm. |
-| Nitrogen removal and balance per zone (yield × protein) | HarvestLab and Operations Center | High. We already have both yield and GrainSense protein. |
+| Variable-rate prescription export (ISOXML task data or shapefile, by zone) | xarvio, GeoPard, Deere | **Done** (`yieldsuite prescription`, see [zones](zones.md)). Next: grid-type ISOXML and validation on real terminals. |
+| Nitrogen removal and balance per zone (yield × protein) | HarvestLab and Operations Center | **Done** (`yieldsuite nbalance`, see [zones](zones.md)). |
 | AgGateway ADAPT import | Yield Data Cleaner | Medium. Covers many proprietary formats at once. |
 | Direct sync from machine clouds (Deere, CNH, Claas, FieldView APIs) | Commercial platforms | Medium. Avoids exporting files by hand. See [Data connectors](#data-connectors-to-machine-and-farm-software-platforms). |
 | Reassigning data to the right field | SMS | Medium. Our boundary clipping partly covers this. |
