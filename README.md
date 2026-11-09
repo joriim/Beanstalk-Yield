@@ -1,11 +1,11 @@
-# Yield Data Suite
+# Beanstalk Yield Suite
 
 **Vision: the Linux of modelling agricultural yield and its causes.** An
 open, shared core that anyone can run, inspect and improve, with connectors
 for every data source and many front ends on top. See
 [docs/vision.md](docs/vision.md).
 
-Yield Data Suite is an open-source processing chain for **as-good-as-achievable yield maps** from
+Beanstalk Yield Suite is an open-source processing chain for **as-good-as-achievable yield maps** from
 combine harvester logs, weighed loads, drone and public satellite data
 (Sentinel-2), together with the field weather, soil, terrain and grain-quality
 data that explain them.

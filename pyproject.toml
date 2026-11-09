@@ -5,11 +5,11 @@ build-backend = "hatchling.build"
 [project]
 name = "yieldsuite"
 dynamic = ["version"]
-description = "Yield Data Suite: open modelling of crop yield and its causes, from harvester, drone, satellite and weather data (processing levels L0-L5)"
+description = "Beanstalk Yield Suite: open modelling of crop yield and its causes, from harvester, drone, satellite and weather data (processing levels L0-L5)"
 readme = "README.md"
 license = "Apache-2.0"
 requires-python = ">=3.10"
-authors = [{ name = "Yield Data Suite contributors" }]
+authors = [{ name = "Beanstalk Yield Suite contributors" }]
 maintainers = [{ email = "miiro.jaaskelainen@iki.fi" }]
 keywords = ["precision agriculture", "yield monitor", "yield map", "Sentinel-2", "ISOXML", "GIS"]
 classifiers = [

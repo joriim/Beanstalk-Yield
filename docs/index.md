@@ -1,4 +1,4 @@
-# Yield Data Suite
+# Beanstalk Yield Suite
 
 **The Linux of modelling agricultural yield and its causes** – see the
 [vision](vision.md).

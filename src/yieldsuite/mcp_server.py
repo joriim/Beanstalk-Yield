@@ -19,7 +19,7 @@ from .levels import Level
 from .store import FarmStore, StoreError
 
 INSTRUCTIONS = """\
-Yield Data Suite farm-data server. Use it to inspect fields, products and QA,
+Beanstalk Yield Suite farm-data server. Use it to inspect fields, products and QA,
 to record human decisions, and to run the yield-map chain.
 
 - Read tools never change anything. Write tools (update_machine_profile,

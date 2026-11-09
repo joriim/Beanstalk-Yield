@@ -1,6 +1,6 @@
 # Suunnitelma: Datakasvukunto, GrainSense Combine, Mavic 3M, Sentinel-2 ja PlanetScope
 
-Miten viisi datalähdettä ajetaan Yield Data Suiten läpi: mikä on valmista, mitä
+Miten viisi datalähdettä ajetaan Beanstalk Yield Suiten läpi: mikä on valmista, mitä
 pitää rakentaa ja mitä tarvitaan lähtötiedoiksi.
 
 > Tila marraskuu 2026. Merkinnät: **valmis** = toteutettu ja testattu

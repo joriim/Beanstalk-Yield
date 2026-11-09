@@ -9,10 +9,10 @@ class YieldSuiteProvider(QgsProcessingProvider):
         return "yieldsuite"
 
     def name(self):
-        return "Yield Data Suite"
+        return "Beanstalk Yield Suite"
 
     def longName(self):  # noqa: N802
-        return "Yield Data Suite: open modelling of crop yield and its causes"
+        return "Beanstalk Yield Suite: open modelling of crop yield and its causes"
 
     def loadAlgorithms(self):  # noqa: N802
         for alg in ALGORITHMS:
