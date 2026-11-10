@@ -131,6 +131,8 @@ def test_run_writes_seedbed_summary_and_bands(tmp_path, example_config_path):
     assert sb["bare_soil"]["repeatability"] == pytest.approx(1.0)
     assert sb["emergence"]["median_days_from_sowing"] == pytest.approx(10.0)
     assert sb["emergence"]["median_image_gap_days"] == 20
+    refine = sb["emergence"]["refine"]  # every cell came up between sowing and 1 June
+    assert (refine["from"], refine["to"], refine["share_of_cells"]) == (str(SOW), "2026-06-01", 1.0)
     b = res["seedbed_bands"]
     assert b["emergence_lag_days"][0, 0] == pytest.approx(10.0)  # day 20 against day 10
     assert b["bare_soil_wetness"][0, 0] > b["bare_soil_wetness"][0, 1]
@@ -138,3 +140,55 @@ def test_run_writes_seedbed_summary_and_bands(tmp_path, example_config_path):
     assert west["cell"] == 0 and east["cell"] == 4
     assert west["emergence_lag_days"] == pytest.approx(10.0) and east["emergence_lag_days"] == 0
     assert sb["loggers"]["contrast"]["mean_c"] == pytest.approx(3.0)
+
+
+def test_planetscope_images_narrow_the_emergence_interval(tmp_path, example_config_path):
+    """Sentinel-2 on days -2, 30 and 50; PlanetScope (other NDVI scale) on days 31, 10, 14, 18."""
+    from test_weather import fake_payload
+
+    from yieldsuite.config import CropSettings, load_config
+    from yieldsuite.l4 import Grid
+    from yieldsuite.weather import openmeteo, parse_response
+    from yieldsuite.weather.run import run_agroclimate, weather_path
+
+    grid = Grid(xmin=0.0, ymax=120.0, resolution=20.0, nx=6, ny=6)
+    cfg = load_config(example_config_path)
+    cfg.output_dir = tmp_path / "output"
+    cfg.location = (62.8, 22.85)
+    cfg.crop = CropSettings(sowing_date=str(SOW), harvest_date="2026-08-25")
+    openmeteo.save(parse_response(fake_payload()), {"request": {}}, weather_path(cfg))
+    cells = np.arange(36)
+    true_day = np.where(cells < 18, 12.0, 16.0)  # the south half emerges four days later
+    rate = 0.02 + 0.0002 * cells  # fAPAR per day after emergence, a little different per cell
+
+    def fapar(day):
+        return np.clip(0.2 + (day - true_day) * rate, 0, 0.9)  # reaches 0.2 on true_day
+
+    def rows(day, source, to_sensor=lambda v: v):
+        d = str(SOW + timedelta(days=day))
+        return [(c, d, "NDVI", to_sensor(NDVI_AT(fapar(day)))[c], source) for c in cells]
+
+    s2 = [r for day in (-2, 30, 50) for r in rows(day, "sentinel2")]
+    ps = [r for day in (31, 10, 14, 18) for r in rows(day, "planetscope", lambda v: 0.8 * v - 0.05)]
+    cols = ["cell", "date", "index", "value", "source"]
+
+    alone = run_agroclimate(cfg, grid, features_long=pd.DataFrame.from_records(s2, columns=cols))
+    em = alone["summary"]["seedbed"]["emergence"]
+    assert em["median_image_gap_days"] == 30 and em["refine"]["gap_days"] == 30
+
+    both = run_agroclimate(
+        cfg, grid, features_long=pd.DataFrame.from_records(s2 + ps, columns=cols)
+    )
+    em = both["summary"]["seedbed"]["emergence"]
+    assert both["summary"]["image_sources"]["ndvi_dates"] == {"planetscope": 4, "sentinel2": 3}
+    assert em["median_image_gap_days"] == 4 and em["refine"] is None
+    lag = both["seedbed_bands"]["emergence_days"].ravel()
+    assert lag[18:].mean() - lag[:18].mean() == pytest.approx(4.0, abs=0.3)
+
+    # without an image near a Sentinel-2 date the sensors cannot be matched: left out, and said
+    far = [r for r in ps if r[1] != str(SOW + timedelta(days=31))]
+    res = run_agroclimate(
+        cfg, grid, features_long=pd.DataFrame.from_records(s2 + far, columns=cols)
+    )
+    assert "planetscope" in res["summary"]["image_sources"]["left_out"]
+    assert res["summary"]["seedbed"]["emergence"]["median_image_gap_days"] == 30

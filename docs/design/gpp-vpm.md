@@ -82,6 +82,10 @@ This is the weakest term and decides how the maps may be read.
    `days_to_nearest_image`; days further than 10 from an image are marked in
    the video and excluded from `low_growth_days` unless temperature or light
    alone explains them.
+   PlanetScope scenes narrow the interval for fAPAR (see
+   [seedbed.md](../seedbed.md)) but not for W: it has no SWIR band. Where
+   PlanetScope fills the gaps, fAPAR and so `gpp_potential` are close to
+   daily, and W remains the coarser term.
 5. **Space.** B11 is a 20 m band. On a 10 m grid W is smoother than fAPAR,
    and edge cells mix with the surroundings.
 6. **Wet soil and dew** raise NDMI independent of the crop, mostly before

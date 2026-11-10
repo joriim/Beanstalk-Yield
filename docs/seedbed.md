@@ -46,9 +46,36 @@ from the field median (`emergence_lag_days`: positive = later).
 crossing (or sowing and the first image). The delay is **not known more
 finely than this**. Cells that cross in the same interval differ only by how
 far they had come at the later image, so with a 20-day gap the band is
-closer to "canopy size at that image" than to a date. Read differences
-smaller than about half the gap as ranking. PlanetScope or drone images in
-June shorten the gap.
+closer to "canopy size at that image" than to a date.
+
+### Narrowing the interval with PlanetScope
+
+When the interval in which most cells emerged is longer than
+`refine_gap_days` (7), the summary names it under `emergence.refine`
+(`from`, `to`, share of cells). Add PlanetScope (or drone) scenes inside it
+as ordinary [imagery entries](multisource.md) and run `yieldsuite fuse`
+again:
+
+```yaml
+imagery:
+  - kind: sentinel2
+  - {kind: planetscope, path: data/ps_2026-05-24_SR_8b.tif, date: 2026-05-24, mask: data/ps_2026-05-24_udm2.tif}
+  - {kind: planetscope, path: data/ps_2026-05-28_SR_8b.tif, date: 2026-05-28, mask: data/ps_2026-05-28_udm2.tif}
+  - {kind: planetscope, path: data/ps_2026-06-02_SR_8b.tif, date: 2026-06-02, mask: data/ps_2026-06-02_udm2.tif}
+```
+
+- **One scene must lie within two days of a cloud-free Sentinel-2 date.**
+  The sensors read NDVI differently; the suite fits PlanetScope to
+  Sentinel-2 on such a pair and applies the fit to every PlanetScope date.
+  Without a pair, PlanetScope is left out of the fAPAR curve and the summary
+  says so under `image_sources.left_out`: an offset between sensors would
+  otherwise look like growth. Two pairs, one on sparse and one on dense
+  canopy, make the fit safer.
+- A scene every 3–5 days through the interval is enough; daily adds little
+  because the curve is interpolated linearly.
+- The same merged series feeds IPAR and RUE, so they sharpen too.
+- PlanetScope has no SWIR band. Bare-soil wetness, and later the water
+  scalar of the GPP model, stay on the Sentinel-2 dates and 20 m.
 
 The threshold is canopy cover, not the botanical emergence date; the
 difference between cells is what is used.

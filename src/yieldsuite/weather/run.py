@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 import numpy as np
@@ -134,6 +134,10 @@ def run_agroclimate(
     if s.sowing_date is None:
         summary["note"] = "no sowing date: totals cover the whole fetched period"
 
+    if features_long is not None:
+        features_long, sources = _one_series(features_long)
+        if sources:
+            summary["image_sources"] = sources
     _seedbed(config, grid, s, weather, daily, features_long, out)
 
     if (
@@ -175,6 +179,35 @@ def run_agroclimate(
     return out
 
 
+def _one_series(features_long: pd.DataFrame) -> tuple[pd.DataFrame, dict | None]:
+    """One value per cell, date and index for the time series (fAPAR curve, wetness).
+
+    Other sources are first brought to the Sentinel-2 scale; a source that
+    cannot be (no image within two days of a Sentinel-2 date, or a weak fit)
+    is left out, because an offset between sensors would look like growth.
+    """
+    from ..l5.harmonize import collapse, harmonize
+
+    if "source" not in features_long or features_long["source"].nunique() < 2:
+        return features_long, None
+    harmonised, report = harmonize(features_long)
+    ndvi = harmonised[harmonised["index"] == "NDVI"]
+    info = {
+        "ndvi_dates": {
+            str(src): int(part["date"].astype(str).nunique())
+            for src, part in ndvi.groupby("source")
+        },
+        "left_out": {
+            src: rep["indices"].get("NDVI", {}).get("reason", "no NDVI")
+            for src, rep in report.get("sources", {}).items()
+            if not rep["indices"].get("NDVI", {}).get("used")
+        },
+    }
+    if report.get("note"):
+        info["note"] = report["note"]
+    return collapse(harmonised), info
+
+
 def _wide(features_long: pd.DataFrame, index: str, n_cells: int) -> pd.DataFrame | None:
     part = features_long[features_long["index"] == index]
     if part.empty:
@@ -213,6 +246,7 @@ def _seedbed(config, grid, s: AgroSettings, weather, daily, features_long, out: 
                 "median_gdd": _pct(e["gdd"], 50) if "gdd" in e else None,
                 "lag_days": {"p10": _pct(e["lag_days"], 10), "p90": _pct(e["lag_days"], 90)},
                 "median_image_gap_days": _pct(e["gap_days"], 50),
+                "refine": _refine(e, s.sowing_date, sb.refine_gap_days),
                 "cells_not_emerged": int(
                     (~np.isfinite(e["days"]) & ndvi.notna().any().to_numpy()).sum()
                 ),
@@ -239,6 +273,27 @@ def _seedbed(config, grid, s: AgroSettings, weather, daily, features_long, out: 
         out["summary"]["seedbed"] = info
     if bands and grid is not None:
         out["seedbed_bands"] = {k: v.reshape((grid.ny, grid.nx)) for k, v in bands.items()}
+
+
+def _refine(e: dict, sowing: date, max_gap_days: float) -> dict | None:
+    """The image interval in which most cells emerged, when it is too long to date them."""
+    ok = np.isfinite(e["gap_days"])
+    if not ok.any():
+        return None
+    pairs, counts = np.unique(
+        np.column_stack([e["gap_start_days"][ok], e["gap_days"][ok]]), axis=0, return_counts=True
+    )
+    start, gap = pairs[counts.argmax()]
+    if gap <= max_gap_days:
+        return None
+    return {
+        "from": str(sowing + timedelta(days=int(start))),
+        "to": str(sowing + timedelta(days=int(start + gap))),
+        "gap_days": int(gap),
+        "share_of_cells": float(counts.max() / ok.sum()),
+        "advice": "add PlanetScope or drone images inside this interval, and one within "
+        "two days of a Sentinel-2 date so the sensors can be matched",
+    }
 
 
 def _pct(a, q):

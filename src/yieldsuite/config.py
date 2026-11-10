@@ -116,6 +116,7 @@ class SeedbedConfig:
     bare_days_after: int = 7  # ... to this many after
     bare_ndvi: float = 0.25  # a cell counts as bare below this NDVI
     emergence_fapar: float = 0.2  # emergence = fAPAR first reaches this
+    refine_gap_days: float = 7.0  # ask for more images when the interval at emergence is longer
     loggers: Path | None = None  # CSV: logger, time, temp_c
     logger_positions: dict[str, tuple[float, float]] = field(default_factory=dict)  # x, y in crs
 

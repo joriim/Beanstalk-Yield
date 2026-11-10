@@ -96,12 +96,14 @@ def emergence(
     fAPAR is 0 at sowing and linear between images, as in the IPAR sum.
     ``gap_days`` is the distance between the two images (or sowing and the
     first image) around the crossing: the delay is not known more finely.
+    More images in that interval (PlanetScope, drone) narrow it.
     """
     ndvi = _by_date(ndvi)
     obs = [d for d in ndvi.index if d > sowing and (harvest is None or d < harvest)]
     n_cells = ndvi.shape[1]
     days = np.full(n_cells, np.nan)
     gap = np.full(n_cells, np.nan)
+    start = np.full(n_cells, np.nan)  # day of the image (or sowing) before the crossing
     if obs:
         t = np.asarray([(d - sowing).days for d in obs], dtype=float)
         f = fapar_from_ndvi(ndvi.loc[obs].to_numpy(dtype=float))
@@ -120,7 +122,13 @@ def emergence(
                 tc[k] - tc[k - 1]
             )
             gap[c] = tc[k] - tc[k - 1]
-    out = {"days": days, "gap_days": gap, "lag_days": days - np.nanmedian(days) if obs else days}
+            start[c] = tc[k - 1]
+    out = {
+        "days": days,
+        "gap_days": gap,
+        "gap_start_days": start,
+        "lag_days": days - np.nanmedian(days) if obs else days,
+    }
     if gdd_cum is not None and np.isfinite(days).any():
         g = pd.Series(gdd_cum.to_numpy(dtype=float), index=pd.to_datetime(pd.Index(gdd_cum.index)))
         x = np.asarray([(d.date() - sowing).days for d in g.index], dtype=float)
