@@ -42,11 +42,14 @@ def fuse(
     min_valid_share: float = 0.8,
     per_date: bool | None = None,
     request: S2Request | None = None,
+    field_mask: np.ndarray | None = None,
 ) -> FusionResult:
     """Fit Y = f(V) on reliable L4 cells and fill the rest.
 
     Reliable cells: finite yield, coverage >= ``min_coverage`` and (if the band
-    exists) flagged_share <= ``max_flagged_share``.
+    exists) flagged_share <= ``max_flagged_share``. Only cells in ``field_mask``
+    (inside the field) are filled; without a mask, the convex hull of the
+    cells with an L4 yield is used, so neighbouring land is never filled.
     """
     n = grid.ny * grid.nx
     y = np.asarray(l4["yield"], dtype=float).ravel()
@@ -98,6 +101,11 @@ def fuse(
     keep = reliable & ~has_features
     out_y[keep] = y[keep]
     filled["source"][keep] = SOURCE_MEASURED
+    mask, mask_from = _field_mask(field_mask, y, grid, xy)
+    outside = ~mask & (filled["source"] == SOURCE_FILLED)
+    out_y[outside] = np.nan
+    filled["sigma"][outside] = np.nan
+    filled["source"][outside] = 0
 
     with np.errstate(invalid="ignore"):
         mean_y = np.nanmean(out_y) if np.isfinite(out_y).any() else np.nan
@@ -144,6 +152,7 @@ def fuse(
             "filled_share": n_filled / n_out if n_out else 0.0,
         },
         "variogram": filled["variogram"],
+        "field_mask": {"from": mask_from, "cells": int(mask.sum())},
         "source_codes": {"0": "no value", "1": "measured (L4)", "2": "filled from imagery"},
     }
     return FusionResult(bands, card)
@@ -176,3 +185,27 @@ def _ablation(
         except ValueError as exc:
             out[src] = {"cv_rmse_without": None, "note": f"model without it failed: {exc}"}
     return out
+
+
+def _field_mask(field_mask, y, grid: Grid, xy) -> tuple[np.ndarray, str]:
+    """Flat boolean mask of the cells that belong to the field."""
+    if field_mask is not None:
+        m = np.asarray(field_mask, dtype=bool).ravel()
+        if m.size != grid.ny * grid.nx:
+            raise ValueError("field_mask does not match the grid")
+        return m, "boundary"
+    measured = np.isfinite(y)
+    if measured.sum() < 3:
+        return measured, "measured cells"
+    from shapely import MultiPoint, contains_xy
+
+    hull = MultiPoint(xy[measured]).convex_hull.buffer(grid.resolution / 2)
+    return contains_xy(hull, xy[:, 0], xy[:, 1]) | measured, "convex hull of measured cells"
+
+
+def boundary_mask(boundary, grid: Grid) -> np.ndarray:
+    """Cells whose centre lies inside the boundary polygon (2-D, row 0 north)."""
+    from shapely import contains_xy
+
+    _, _, xy = cell_centres(grid)
+    return contains_xy(boundary, xy[:, 0], xy[:, 1]).reshape(grid.ny, grid.nx)

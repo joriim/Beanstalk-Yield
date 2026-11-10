@@ -48,7 +48,11 @@ yieldsuite fuse field.yaml --l4 L4.tif --notify slack           # post summary t
 
 The L4 raster needs a band described as `yield` (t/ha). A `coverage` band
 (0–1) is used when present; otherwise every cell with a yield counts as
-covered. Cells with coverage < 0.5 or flagged share > 0.5 are filled.
+covered. Cells with coverage < 0.5 or flagged share > 0.5 are filled, but only
+inside the field: cells whose centre lies inside the boundary (`boundary:` in
+the config), or without a boundary, inside the convex hull of the measured
+cells. Neighbouring land in the grid's rectangle is never filled; the model
+card records the mask (`field_mask`).
 
 Sentinel-2 features are cached as `L5_<field>_<year>_s2_features.csv`; delete
 it to fetch again. Use `--batch` for large fields (openEO batch job instead of

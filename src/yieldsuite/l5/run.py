@@ -98,6 +98,12 @@ def run_sentinel2_fusion(
     else:
         corrections.pop("l4", None)
 
+    field_mask = None
+    if config.boundary is not None and Path(config.boundary).exists():
+        from ..public.boundary import load_boundary
+        from .fuse import boundary_mask
+
+        field_mask = boundary_mask(load_boundary(config.boundary, config.crs), grid)
     result = fuse(
         l4,
         grid,
@@ -106,6 +112,7 @@ def run_sentinel2_fusion(
         residual=residual,
         min_valid_share=min_valid_share,
         request=request,
+        field_mask=field_mask,
     )
     result.model_card.update(
         field_id=config.field_id,

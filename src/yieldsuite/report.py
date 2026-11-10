@@ -73,7 +73,8 @@ TEXT = {
         "overview": "Ketju yhdellä silmäyksellä",
         "figure": "Kuva",
         "captions": {
-            "pipeline": "Tasot L0–L4 ja tietueiden määrä kullakin tasolla. Jokainen taso "
+            "pipeline": "Tasot L0–L4 (ja L5, jos ajettu) ja tietueiden määrä kullakin "
+            "tasolla. Jokainen taso "
             "on oma tuotteensa, ja minkä tahansa tason voi laskea uudelleen raakadatasta.",
             "summary": "Vasemmalla 10 m solujen satojakauma (pystyviiva: keskiarvo). "
             "Keskellä tietueiden kulku: rivit tiedostossa → tietueet → puintitietueet → "
@@ -93,7 +94,9 @@ TEXT = {
             "L4": "Lopullinen 10 m satokartta ja sen laatukaistat: kattavuus, tietueiden "
             "määrä solussa ja liputettujen osuus. Heikon kattavuuden solut ovat "
             "epävarmempia.",
-            "L5": "Fuusio satelliitti- ja dronekuvien kanssa.",
+            "L5": "Fuusion tulos: ajokaistavaikutuksesta korjattu satokartta, solun "
+            "lähde (mitattu tai kuvien avulla täytetty), täytettyjen solujen epävarmuus ja "
+            "suhteellinen sato (lohkon keskiarvo = 100 %). Vain lohkon sisäiset solut.",
             "Q4": "Jyvän laatu (proteiini, typen otto).",
         },
         "verify_ok": "Kaikki syötteet ja tuotteet ovat tavu tavulta samat kuin ajossa.",
@@ -147,7 +150,8 @@ TEXT = {
         "overview": "The chain at a glance",
         "figure": "Figure",
         "captions": {
-            "pipeline": "Levels L0–L4 and the number of records at each. Every level is "
+            "pipeline": "Levels L0–L4 (and L5 when run) and the number of records at "
+            "each. Every level is "
             "a product of its own and can be recomputed from the raw data.",
             "summary": "Left: yield distribution of the 10 m cells (line: mean). Middle: "
             "record flow, rows in the file → records → harvesting records → clean "
@@ -163,7 +167,9 @@ TEXT = {
             "is deleted, so the rules can be changed and re-run.",
             "L4": "The final 10 m yield map and its quality bands: coverage, records per "
             "cell and flagged share. Cells with low coverage are less certain.",
-            "L5": "Fusion with satellite and drone imagery.",
+            "L5": "Fusion result: yield map corrected for pass effects, the source of "
+            "each cell (measured or filled from imagery), the uncertainty of filled cells "
+            "and relative yield (field mean = 100 %). Cells inside the field only.",
             "Q4": "Grain quality (protein, N uptake).",
         },
         "verify_ok": "Every input and output is byte-identical to the run.",
@@ -188,7 +194,9 @@ def _fmt(v, nd=2, unit=""):
 # --- process description ---------------------------------------------------------
 
 
-def process_steps(qa: dict, manifest: dict, lang: str = "fi") -> list[dict]:
+def process_steps(
+    qa: dict, manifest: dict, lang: str = "fi", card: dict | None = None
+) -> list[dict]:
     """One entry per level: title, inputs, method, parameters, result, outputs."""
     fi = lang == "fi"
     settings = manifest.get("settings", {})
@@ -371,7 +379,75 @@ def process_steps(qa: dict, manifest: dict, lang: str = "fi") -> list[dict]:
             "outputs": "L4 GeoTIFF (COG)",
         }
     )
+    if card:
+        steps.append(_l5_step(card, fi))
     return steps
+
+
+def _l5_step(card: dict, fi: bool) -> dict:
+    fit = card.get("fit", {})
+    cells = card.get("cells", {})
+    s2 = card.get("sentinel2", {})
+    rc = card.get("record_corrections", {})
+    stripes = rc.get("pass_stripes", {})
+    shift = rc.get("residual_shift", {})
+    dates = s2.get("dates_used", [])
+    stripe_txt = (
+        (
+            f"σ_b {100 * stripes['sigma_b']:.1f} % ({stripes.get('n_passes')} "
+            + ("ajokaistaa, korjattu" if fi else "passes, corrected")
+            + ")"
+        )
+        if stripes.get("applied")
+        else ("ei korjattu" if fi else "not corrected")
+    )
+    shift_txt = (
+        f"{shift.get('suggested_extra_delay_s'):+.1f} s "
+        f"(r {shift.get('corr_at_zero'):.3f} → {shift.get('corr_at_best'):.3f})"
+        if shift.get("suggested_extra_delay_s") is not None
+        else "–"
+    )
+    return {
+        "level": "L5",
+        "title": "Fuusio satelliittikuvien kanssa" if fi else "Fusion with imagery",
+        "inputs": "L4 + L3 + Sentinel-2 L2A (openEO, " + str(s2.get("backend", "")) + ")",
+        "method": (
+            "Sentinel-2-kasvillisuusindeksit (" + ", ".join(s2.get("indices", [])) + ") "
+            "haetaan openEO:lla vain ruudukon soluille (satodataa ei lähetetä), pilviset "
+            "päivät hylätään. Sadon ja kuvan malli sovitetaan luotettaviin L4-soluihin ja "
+            "arvioidaan lohkoittaisella ristiinvalidoinnilla. Kuvaennustetta käytetään "
+            "vertailupintana: ajokaistavaikutus poistetaan (lohkon kokonaismassa säilyy) "
+            "ja viive tarkistetaan. Lohkon sisäiset aukot täytetään regressiokrigingillä; "
+            "täytetyt solut merkitään eikä niitä käytetä opetukseen."
+            if fi
+            else "Sentinel-2 indices (" + ", ".join(s2.get("indices", [])) + ") are "
+            "retrieved with openEO for the grid cells only (no yield data is sent); "
+            "cloudy dates are dropped. The yield–image model is fitted on reliable L4 "
+            "cells and checked by block cross-validation. The image prediction is the "
+            "reference for removing pass effects (field total kept) and checking the "
+            "delay. Gaps inside the field are filled by regression kriging; filled cells "
+            "are labelled and never used for training."
+        ),
+        "parameters": {
+            ("kuvapäivät" if fi else "image dates"): f"{len(dates)}: " + ", ".join(dates),
+            ("hylätyt päivät" if fi else "dropped dates"): str(len(s2.get("dates_dropped", []))),
+            ("malli" if fi else "model"): f"{card.get('method')} + {card.get('residual')}",
+            ("ajokaistavaikutus" if fi else "pass effect"): stripe_txt,
+            ("viivetarkistus" if fi else "delay check"): shift_txt,
+        },
+        "result": (
+            f"R² {fit.get('r2', float('nan')):.2f}, "
+            f"CV RMSE {fit.get('cv_rmse', float('nan')):.2f} t/ha; "
+            + (
+                f"{cells.get('measured')} mitattua ja {cells.get('filled')} täytettyä solua"
+                f" ({100 * cells.get('filled_share', 0):.0f} %)"
+                if fi
+                else f"{cells.get('measured')} measured and {cells.get('filled')} filled "
+                f"cells ({100 * cells.get('filled_share', 0):.0f} %)"
+            )
+        ),
+        "outputs": "L5 GeoTIFF (COG), model card (JSON)",
+    }
 
 
 def _l0_result(ing: dict, fi: bool) -> str:
@@ -548,11 +624,21 @@ def figure_raster(path_tif, bands, titles, boundary, path, suptitle):
     fig, axes = plt.subplots(rows, cols, figsize=(6.2 * cols, 5.2 * rows), squeeze=False)
     for ax, b in zip(axes.ravel(), bands, strict=False):
         a = data[b]
-        vals = a.compressed()
-        lo, hi = np.percentile(vals, [2, 98]) if vals.size else (0, 1)
-        cmap = "RdYlGn" if b in ("yield", "protein_pct_dm", "n_uptake_kg_ha") else "viridis"
-        im = ax.imshow(a, extent=ext, cmap=cmap, vmin=lo, vmax=hi)
-        fig.colorbar(im, ax=ax, shrink=0.8)
+        if b == "source":  # categorical: 1 measured, 2 filled; 0 = no value
+            from matplotlib.colors import ListedColormap
+
+            a = np.ma.masked_where(a.filled(0) < 1, a)
+            im = ax.imshow(
+                a, extent=ext, cmap=ListedColormap(["#9db8d2", "#e08a3c"]), vmin=0.5, vmax=2.5
+            )
+            cb = fig.colorbar(im, ax=ax, shrink=0.8, ticks=[1, 2])
+            cb.ax.set_yticklabels(["1", "2"])
+        else:
+            vals = a.compressed()
+            lo, hi = np.percentile(vals, [2, 98]) if vals.size else (0, 1)
+            cmap = "RdYlGn" if b in ("yield", "protein_pct_dm", "n_uptake_kg_ha") else "viridis"
+            im = ax.imshow(a, extent=ext, cmap=cmap, vmin=lo, vmax=hi)
+            fig.colorbar(im, ax=ax, shrink=0.8)
         _boundary(ax, boundary)
         _decorate(ax)
         ax.set_title(titles.get(b, b))
@@ -581,7 +667,7 @@ def _harvesting(gdf) -> np.ndarray:
     return on
 
 
-def figure_pipeline(qa, manifest, path, lang):
+def figure_pipeline(qa, manifest, path, lang, card=None):
     """Boxes L0 -> L4 with the number of records and the key result of each level."""
     plt = _plt()
     from matplotlib.patches import FancyBboxPatch
@@ -616,11 +702,20 @@ def figure_pipeline(qa, manifest, path, lang):
             f"{_fmt((mc.get('cell_mass_kg') or 0) / 1000, 1)} t",
         ),
     ]
-    fig, ax = plt.subplots(figsize=(12, 2.4))
+    if card:
+        fit = card.get("fit", {})
+        boxes.append(
+            (
+                "L5",
+                "fuusio Sentinel-2" if fi else "Sentinel-2 fusion",
+                f"R² {fit.get('r2', float('nan')):.2f}",
+            )
+        )
+    fig, ax = plt.subplots(figsize=(2 * len(boxes), 2.4))
     ax.set_xlim(0, len(boxes) * 2)
     ax.set_ylim(0, 2)
     ax.axis("off")
-    colours = ["#d9e6f2", "#d9e6f2", "#d9e6f2", "#dcefdc", "#fbe8cc", "#e3dcf2"]
+    colours = ["#d9e6f2", "#d9e6f2", "#d9e6f2", "#dcefdc", "#fbe8cc", "#e3dcf2", "#f6d5d5"]
     for i, (lvl, name, num) in enumerate(boxes):
         x = i * 2 + 0.15
         ax.add_patch(
@@ -806,8 +901,9 @@ th,td{border-bottom:1px solid var(--line);padding:5px 8px;text-align:left;vertic
 code{font-size:.82rem;word-break:break-all}
 .bad{color:var(--bad);font-weight:600}
 .good{color:var(--accent);font-weight:600}
-dl{display:grid;grid-template-columns:max-content 1fr;gap:2px 14px;margin:6px 0}
-dt{color:var(--muted)}"""
+dl{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:2px 14px;margin:6px 0}
+dt{color:var(--muted)}
+dd{margin:0;min-width:0;overflow-wrap:anywhere}"""
 
 
 def build_report(
@@ -850,8 +946,10 @@ def build_report(
     if config.boundary is not None and Path(config.boundary).exists():
         boundary = gpd.read_file(config.boundary).to_crs(gdf.crs)
 
+    card_path = out / f"L5_{stem}_model_card.json"
+    card = json.loads(card_path.read_text()) if card_path.exists() else None
     figs = {
-        "pipeline": figure_pipeline(qa, manifest, fdir / "pipeline.png", lang),
+        "pipeline": figure_pipeline(qa, manifest, fdir / "pipeline.png", lang, card=card),
         "summary": figure_summary(gdf, qa, l4_path, fdir / "summary.png", lang),
         "L1A": figure_l1a(gdf, boundary, fdir / "L1A_records.png", lang),
         "L1B": figure_l1b(gdf, fdir / "L1B_signals.png", lang),
@@ -877,8 +975,13 @@ def build_report(
     if l5_path.exists():
         figs["L5"] = figure_raster(
             l5_path,
-            ["yield", "filled", "uncertainty"],
-            {},
+            ["yield", "source", "sigma", "relative_yield"],
+            {
+                "yield": "sato (t/ha)" if fi else "yield (t/ha)",
+                "source": "1 = mitattu, 2 = täytetty" if fi else "1 = measured, 2 = filled",
+                "sigma": "epävarmuus täytetyissä (t/ha)" if fi else "uncertainty, filled (t/ha)",
+                "relative_yield": "suhteellinen sato (%)" if fi else "relative yield (%)",
+            },
             boundary,
             fdir / "L5.png",
             "L5 – " + ("fuusio kuvien kanssa" if fi else "fusion with imagery"),
@@ -894,7 +997,7 @@ def build_report(
             "Q4 – " + ("jyvän laatu" if fi else "grain quality"),
         )
 
-    steps = process_steps(qa, manifest, lang)
+    steps = process_steps(qa, manifest, lang, card=card)
     md_path = rdir / f"{stem}_process.md"
     md_path.write_text(process_markdown(steps, lang))
 
@@ -985,7 +1088,7 @@ def _html(config, qa, manifest, steps, figs, audit, t, lang, notes=None, title=N
             parts.append(_figure(figs, s["level"], t, n))
             n += 1
         parts.append("</section>")
-    for lvl in ("L5", "Q4"):
+    for lvl in ("Q4",):
         if lvl in figs:
             parts.append(f"<section class='level'><h3>{lvl}</h3>{_figure(figs, lvl, t, n)}")
             parts.append("</section>")

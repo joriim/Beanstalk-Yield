@@ -194,3 +194,33 @@ def test_cli_fuse_offline(tmp_path, example_config_path):
     assert (bands["source"].ravel()[hidden] == SOURCE_FILLED).all()
     card = json.loads((tmp_path / "out" / "L5_demo-field-01_2026_model_card.json").read_text())
     assert card["field_id"] == "demo-field-01" and card["product_class"] == "absolute"
+
+
+def test_gap_fill_stays_inside_the_field():
+    """Cells outside the field (neighbouring land in the grid's rectangle) are never
+    filled, whether the field comes from a boundary or from the measured cells."""
+    pytest.importorskip("gstools")
+    from shapely.geometry import box
+
+    from yieldsuite.l5.fuse import boundary_mask
+
+    l4, long_df, truth, hidden = synthetic_field()
+    rows, cols, _ = cell_centres(GRID)
+    outside = cols >= 25  # the field ends at column 25
+    y = l4["yield"].ravel().copy()
+    y[outside] = np.nan
+    l4 = {"yield": y.reshape(GRID.ny, GRID.nx), "coverage": l4["coverage"]}
+    field = box(GRID.xmin, GRID.ymax - GRID.ny * 20, GRID.xmin + 25 * 20, GRID.ymax)
+    mask = boundary_mask(field, GRID)
+    assert mask.sum() == 25 * 30
+
+    res = fuse(l4, GRID, long_df, field_mask=mask)
+    src = res.bands["source"].ravel()
+    assert np.isnan(res.bands["yield"].ravel()[outside]).all()
+    assert (src[outside] == 0).all()
+    assert (src[hidden & ~outside] == SOURCE_FILLED).all()
+    assert res.model_card["field_mask"] == {"from": "boundary", "cells": 750}
+
+    hull = fuse(l4, GRID, long_df)  # no boundary: hull of the measured cells
+    assert np.isnan(hull.bands["yield"].ravel()[outside]).all()
+    assert hull.model_card["field_mask"]["from"] == "convex hull of measured cells"
