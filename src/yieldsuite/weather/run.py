@@ -14,6 +14,7 @@ from ..l4.grid import Grid
 from . import openmeteo
 from .agro import AgroSettings, daily_indices, season_summary
 from .rue import field_rue, rue_map
+from .seedbed import bare_soil_wetness, emergence, logger_summary, read_loggers
 
 
 def field_location(config: FieldYearConfig, grid: Grid | None = None) -> tuple[float, float]:
@@ -133,6 +134,8 @@ def run_agroclimate(
     if s.sowing_date is None:
         summary["note"] = "no sowing date: totals cover the whole fetched period"
 
+    _seedbed(config, grid, s, weather, daily, features_long, out)
+
     if (
         l5_bands is not None
         and features_long is not None
@@ -172,6 +175,72 @@ def run_agroclimate(
     return out
 
 
+def _wide(features_long: pd.DataFrame, index: str, n_cells: int) -> pd.DataFrame | None:
+    part = features_long[features_long["index"] == index]
+    if part.empty:
+        return None
+    wide = part.pivot_table(index="date", columns="cell", values="value")
+    return wide.reindex(columns=range(n_cells))
+
+
+def _seedbed(config, grid, s: AgroSettings, weather, daily, features_long, out: dict) -> None:
+    """Bare-soil wetness, emergence delay and loggers into ``out`` (summary and bands)."""
+    sb = config.seedbed
+    info: dict = {}
+    bands: dict = {}
+    if features_long is not None and grid is not None and s.sowing_date:
+        n = grid.ny * grid.nx
+        ndvi, ndmi = _wide(features_long, "NDVI", n), _wide(features_long, "NDMI", n)
+        if ndvi is not None and ndmi is not None:
+            w = bare_soil_wetness(
+                ndvi, ndmi, s.sowing_date, sb.bare_days_before, sb.bare_days_after, sb.bare_ndvi
+            )
+            bands["bare_soil_wetness"] = w["wetness"]
+            bands["bare_soil_dates"] = w["n_dates"]
+            info["bare_soil"] = {"dates": w["dates"], "repeatability": w["repeatability"]}
+        elif ndvi is not None:
+            info["bare_soil"] = {"dates": [], "note": "no NDMI in the image features"}
+        if ndvi is not None:
+            e = emergence(ndvi, s.sowing_date, s.harvest_date, daily["gdd_cum"], sb.emergence_fapar)
+            bands["emergence_days"] = e["days"]
+            bands["emergence_lag_days"] = e["lag_days"]
+            bands["emergence_gap_days"] = e["gap_days"]
+            if "gdd" in e:
+                bands["emergence_gdd"] = e["gdd"]
+            info["emergence"] = {
+                "fapar_threshold": sb.emergence_fapar,
+                "median_days_from_sowing": _pct(e["days"], 50),
+                "median_gdd": _pct(e["gdd"], 50) if "gdd" in e else None,
+                "lag_days": {"p10": _pct(e["lag_days"], 10), "p90": _pct(e["lag_days"], 90)},
+                "median_image_gap_days": _pct(e["gap_days"], 50),
+                "cells_not_emerged": int(
+                    (~np.isfinite(e["days"]) & ndvi.notna().any().to_numpy()).sum()
+                ),
+            }
+    if sb.loggers is not None:
+        base = s.t_base_c if s.soil_t_base_c is None else s.soil_t_base_c
+        lg = logger_summary(read_loggers(sb.loggers), s.sowing_date, s.harvest_date, base, weather)
+        if grid is not None:
+            for name, (x, y) in sb.logger_positions.items():
+                if name not in lg["loggers"]:
+                    continue
+                col = int((x - grid.xmin) // grid.resolution)
+                row = int((grid.ymax - y) // grid.resolution)
+                if not (0 <= col < grid.nx and 0 <= row < grid.ny):
+                    lg["loggers"][name]["note"] = "position outside the grid"
+                    continue
+                cell = row * grid.nx + col
+                lg["loggers"][name]["cell"] = cell
+                for band in ("bare_soil_wetness", "emergence_lag_days"):
+                    if band in bands and np.isfinite(bands[band][cell]):
+                        lg["loggers"][name][band] = float(bands[band][cell])
+        info["loggers"] = lg
+    if info:
+        out["summary"]["seedbed"] = info
+    if bands and grid is not None:
+        out["seedbed_bands"] = {k: v.reshape((grid.ny, grid.nx)) for k, v in bands.items()}
+
+
 def _pct(a, q):
     a = np.asarray(a, float)
     return float(np.nanpercentile(a, q)) if np.isfinite(a).any() else None
@@ -190,6 +259,15 @@ def write_agroclimate(config: FieldYearConfig, result: dict, grid: Grid | None) 
         d = out / f"{stem}_agroclimate_daily.csv"
         result["daily"][[c for c in cols if c in result["daily"]]].to_csv(d, index_label="date")
         files["agroclimate_daily"] = str(d)
+    if "seedbed_bands" in result and grid is not None:
+        try:
+            from ..l4.io import write_cog
+
+            b = result["seedbed_bands"]
+            path = out / f"{stem}_seedbed.tif"
+            files["seedbed"] = str(write_cog(b, grid, config.crs, path, names=tuple(b)))
+        except ImportError:
+            pass
     if "rue_bands" in result and grid is not None:
         try:
             from ..l4.io import write_cog

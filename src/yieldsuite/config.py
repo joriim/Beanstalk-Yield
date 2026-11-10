@@ -109,6 +109,18 @@ class WeatherConfig:
 
 
 @dataclass
+class SeedbedConfig:
+    """Bare-soil wetness, emergence delay and soil temperature loggers (docs/seedbed.md)."""
+
+    bare_days_before: int = 30  # bare-soil images from this many days before sowing ...
+    bare_days_after: int = 7  # ... to this many after
+    bare_ndvi: float = 0.25  # a cell counts as bare below this NDVI
+    emergence_fapar: float = 0.2  # emergence = fAPAR first reaches this
+    loggers: Path | None = None  # CSV: logger, time, temp_c
+    logger_positions: dict[str, tuple[float, float]] = field(default_factory=dict)  # x, y in crs
+
+
+@dataclass
 class PublicDataConfig:
     """Endpoints of public services (verify them; they change more often than code)."""
 
@@ -159,6 +171,7 @@ class FieldYearConfig:
     crop: CropSettings | None = None
     location: tuple[float, float] | None = None  # (lat, lon) WGS84; else from the grid
     weather: WeatherConfig = field(default_factory=WeatherConfig)
+    seedbed: SeedbedConfig = field(default_factory=SeedbedConfig)
     public_data: PublicDataConfig = field(default_factory=PublicDataConfig)
     edge_buffer_m: float | None = None  # FIELD_EDGE buffer; default: one header width
     local_outlier_radius_m: float = 20.0  # neighbourhood of the local Moran's I flag
@@ -247,6 +260,11 @@ def load_config(path: str | Path) -> FieldYearConfig:
         loc = (float(loc["lat"]), float(loc["lon"]))
     elif loc is not None:
         loc = (float(loc[0]), float(loc[1]))
+    sb = dict(raw.get("seedbed") or {})
+    sb["loggers"] = _path(base, sb.get("loggers"))
+    sb["logger_positions"] = {
+        str(k): (float(v[0]), float(v[1])) for k, v in (sb.get("logger_positions") or {}).items()
+    }
     return FieldYearConfig(
         field_id=str(raw["field_id"]),
         year=int(raw["year"]),
@@ -264,6 +282,7 @@ def load_config(path: str | Path) -> FieldYearConfig:
         crop=crop,
         location=loc,
         weather=WeatherConfig(**(raw.get("weather") or {})),
+        seedbed=SeedbedConfig(**sb),
         public_data=PublicDataConfig(**(raw.get("public_data") or {})),
         edge_buffer_m=raw.get("edge_buffer_m"),
         local_outlier_radius_m=float(raw.get("local_outlier_radius_m", 20.0)),

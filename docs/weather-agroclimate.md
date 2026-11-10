@@ -75,7 +75,8 @@ north–south and 5 km east–west at 62° N), hourly. With
 Both sums are **one value for the whole field**. The model soil is a generic
 soil type under grass-like cover for the 9 km cell; it does not know the
 field's peat, clay, drainage or tillage. Use the topsoil sum to compare
-springs and sowing dates, not places within a field.
+springs and sowing dates, not places within a field; for those see
+[seedbed.md](seedbed.md).
 
 `model: era5_seamless` (default) is Open-Meteo's blend of ERA5-Land and
 ERA5; `model: era5_land` asks for ERA5-Land alone. The model used is written

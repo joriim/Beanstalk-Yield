@@ -161,16 +161,15 @@ temperature were examined and rejected for now.
   statistical model gets the same information from the index itself, without
   the false precision.
 
-**Instead**
+**Instead** (implemented, see [seedbed.md](../seedbed.md))
 
-- Field-level thermal sums from ERA5-Land, air and topsoil (implemented).
-- The existing covariates as they are (terrain, peat), plus bare-soil
-  Sentinel-2 SWIR in spring as a 20 m wetness proxy.
+- Field-level thermal sums from ERA5-Land, air and topsoil.
+- Bare-soil Sentinel-2 NDMI around sowing as a 20 m wetness proxy, with a
+  repeatability figure between dates.
 - The crop as the sensor: per-cell delay of emergence from the fAPAR curve
   integrates seedbed temperature, moisture and sowing depth.
-- If the size of the effect matters, three to five loggers at 5 cm in
-  contrasting zones for one spring measure it directly and give the only
-  sound basis for any later scaling.
+- Three to five loggers at 5 cm in contrasting zones measure the size of the
+  effect directly and give the only sound basis for any later scaling.
 
 ## References
 

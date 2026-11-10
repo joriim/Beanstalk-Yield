@@ -21,6 +21,7 @@ nav:
   - L5 Sentinel-2 fusion: l5-sentinel2.md
   - Multi-source imagery and WebODM: multisource.md
   - Weather and agroclimate: weather-agroclimate.md
+  - Seedbed – wetness, emergence, loggers: seedbed.md
   - Public data and boundary: public-data.md
   - Management zones: zones.md
   - Covariate plugins: plugins.md
