@@ -465,6 +465,14 @@ def build_parser() -> argparse.ArgumentParser:
     z.add_argument("--crs", help="CRS if the rasters do not carry one")
     z.set_defaults(func=_cmd_zones)
 
+    cv = sub.add_parser("covariate", help="covariates from installed plugins (e.g. OmaMaatu)")
+    cv.add_argument("action", choices=["list", "fetch"])
+    cv.add_argument("name", nargs="?", help="plugin name (see: yieldsuite covariate list)")
+    cv.add_argument("config", nargs="?", help="field-year config (boundary and grid)")
+    cv.add_argument("--grid", help="raster whose grid to use (e.g. the L4 GeoTIFF)")
+    cv.add_argument("--out", help="folder (default: covariates/ next to the output folder)")
+    cv.set_defaults(func=_cmd_covariate)
+
     rp = sub.add_parser("report", help="level-by-level report: figures, process, audit")
     rp.add_argument("config")
     rp.add_argument("--out", help="folder (default: <output_dir>/report)")
@@ -735,6 +743,51 @@ def _cmd_verify(args) -> int:
             print(p)
         return 1
     print("all inputs and outputs unchanged since the run")
+    return 0
+
+
+def _cmd_covariate(args) -> int:
+    from . import plugins
+
+    if args.action == "list":
+        found = plugins.available()
+        if not found:
+            print("no covariate plugins installed (entry-point group yieldsuite.covariates)")
+        for p in found:
+            print(f"  {p.name:14} {p.target}  ({p.distribution or '?'})")
+        return 0
+    if not args.name or not args.config:
+        print("error: covariate fetch needs NAME and CONFIG", file=sys.stderr)
+        return 1
+    cfg = load_config(args.config)
+    if cfg.boundary is None:
+        print("error: the config needs a boundary (yieldsuite parcel <id>)", file=sys.stderr)
+        return 1
+    from .public.boundary import load_boundary
+
+    try:
+        boundary = load_boundary(cfg.boundary, cfg.crs)
+        if args.grid:
+            from .l4.io import read_bands
+
+            _, grid, _ = read_bands(args.grid, require_yield=False)
+        else:
+            from .l4.grid import Grid
+
+            grid = Grid.from_bounds(boundary.bounds, cfg.grid_resolution_m, cfg.grid_origin)
+        provider = plugins.load(args.name)
+        layers = plugins.fetch(provider, boundary, cfg.crs)
+        out = args.out or str(Path(cfg.output_dir).parent / "covariates")
+        files = plugins.write_covariates(provider, layers, grid, cfg.crs, out)
+    except (plugins.PluginError, FileNotFoundError, ValueError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    print(f"{provider.name} {getattr(provider, 'version', '')}: {', '.join(files['bands'])}")
+    print(f"  raster      {files['raster']}")
+    print(f"  provenance  {files['provenance']}")
+    print(f"  licence     {provider.licence}")
+    for n in layers.notes:
+        print(f"  note        {n}")
     return 0
 
 

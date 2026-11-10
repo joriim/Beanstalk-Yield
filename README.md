@@ -108,6 +108,10 @@ Pre-alpha. Working end to end:
   per zone from measured protein or yield, balance against N applied, and
   variable-rate prescriptions by zone as GeoPackage, Shapefile or ISOXML
   TaskData (`yieldsuite nbalance`, `yieldsuite prescription`).
+- **Covariate plugins** ([docs/plugins.md](docs/plugins.md)): rasters from
+  separately installed packages (entry points `yieldsuite.covariates`), e.g. the
+  private OmaMaatu peat model, averaged onto the field grid with their licence
+  recorded (`yieldsuite covariate list | fetch`).
 - **Farm-data MCP server** (`yieldsuite mcp --store <root>`): list fields and
   products, QA, versioned machine profiles, immutable L0 upload, scale
   tickets, QA approvals, `run_chain` with optional Slack summary; every write

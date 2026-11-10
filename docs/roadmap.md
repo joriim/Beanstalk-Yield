@@ -11,7 +11,7 @@ its causes.
 | Attribution of within-field yield variation to weather, soil, terrain, management and measurement error, each with uncertainty | High. The core of "why", not only "how much". |
 | On-farm trial design and analysis (strips, checkerboards) so management effects are estimated, not inferred from correlation | Medium |
 | Season-to-season comparison: which zones respond to which weather (dry vs wet years) | Medium |
-| GTK soil data and soil samples as covariates | Medium |
+| GTK soil data and soil samples as covariates | Medium. Peat via the OmaMaatu plugin is **done** ([plugins](plugins.md)). |
 
 ## Functions from other software worth adding
 
