@@ -34,6 +34,12 @@ def test_bare_soil_wetness_is_anomaly_from_the_date_median():
     assert out["wetness"][wet].mean() - out["wetness"][~wet].mean() == pytest.approx(0.10, abs=0.01)
     assert out["n_dates"][0] == 3 and out["n_dates"][39] == 2
     assert out["repeatability"] > 0.9
+    # scatter between dates is 0.005 -> standard error of a three-date mean about 0.003
+    assert np.nanmedian(out["sigma"]) == pytest.approx(0.005 / np.sqrt(3), abs=0.001)
+    assert (out["class"][wet] == 1).all()  # the hollow stands out from the field median
+    assert (out["class"][~wet] == 0).mean() > 0.8  # the rest cannot be told apart from it
+    one = bare_soil_wetness(ndvi.iloc[:1], ndmi.iloc[:1], SOW)  # one date: no way to judge
+    assert np.isnan(one["sigma"]).all() and np.isnan(one["class"]).all()
 
     green = bare_soil_wetness(ndvi * 0 + 0.6, ndmi, SOW)  # ley: no bare-soil date
     assert green["dates"] == [] and np.isnan(green["wetness"]).all()
@@ -57,6 +63,11 @@ def test_emergence_day_lag_and_gap():
     assert e["gap_days"][:3] == pytest.approx([10, 10, 20])
     assert e["gdd"][:3] == pytest.approx([150, 200, 250])  # counted from sowing
     assert e["lag_gdd"][:3] == pytest.approx([-50, 0, 50])
+    # noise 0.025 per image through the straight line: gap x noise x sqrt(a² + b²) / rise²
+    assert e["sigma_days"][:3] == pytest.approx([0.442, 1.25, 0.988], abs=0.001)
+    assert list(e["lag_class"][:3]) == [-1, 0, 1] and np.isnan(e["lag_class"][3:]).all()
+    noisy = emergence(ndvi, SOW, fapar_noise=0.3)  # poor images: five days is within the noise
+    assert list(noisy["lag_class"][:3]) == [0, 0, 0]
 
 
 def test_loggers_contrast_and_offset(tmp_path):
@@ -131,6 +142,11 @@ def test_run_writes_seedbed_summary_and_bands(tmp_path, example_config_path):
     assert sb["bare_soil"]["repeatability"] == pytest.approx(1.0)
     assert sb["emergence"]["median_days_from_sowing"] == pytest.approx(10.0)
     assert sb["emergence"]["median_image_gap_days"] == 20
+    assert sb["emergence"]["cells_distinct_from_median"] == {
+        "lower": 0.0,
+        "not_distinct": 0.8,
+        "higher": 0.2,
+    }
     refine = sb["emergence"]["refine"]  # every cell came up between sowing and 1 June
     assert (refine["from"], refine["to"], refine["share_of_cells"]) == (str(SOW), "2026-06-01", 1.0)
     b = res["seedbed_bands"]

@@ -229,14 +229,29 @@ def _seedbed(config, grid, s: AgroSettings, weather, daily, features_long, out: 
                 ndvi, ndmi, s.sowing_date, sb.bare_days_before, sb.bare_days_after, sb.bare_ndvi
             )
             bands["bare_soil_wetness"] = w["wetness"]
+            bands["bare_soil_wetness_sigma"] = w["sigma"]
+            bands["bare_soil_class"] = w["class"]
             bands["bare_soil_dates"] = w["n_dates"]
-            info["bare_soil"] = {"dates": w["dates"], "repeatability": w["repeatability"]}
+            info["bare_soil"] = {
+                "dates": w["dates"],
+                "repeatability": w["repeatability"],
+                "cells_distinct_from_median": _distinct_shares(w["class"]),
+            }
         elif ndvi is not None:
             info["bare_soil"] = {"dates": [], "note": "no NDMI in the image features"}
         if ndvi is not None:
-            e = emergence(ndvi, s.sowing_date, s.harvest_date, daily["gdd_cum"], sb.emergence_fapar)
+            e = emergence(
+                ndvi,
+                s.sowing_date,
+                s.harvest_date,
+                daily["gdd_cum"],
+                sb.emergence_fapar,
+                sb.fapar_noise,
+            )
             bands["emergence_days"] = e["days"]
             bands["emergence_lag_days"] = e["lag_days"]
+            bands["emergence_sigma_days"] = e["sigma_days"]
+            bands["emergence_lag_class"] = e["lag_class"]
             bands["emergence_gap_days"] = e["gap_days"]
             if "gdd" in e:
                 bands["emergence_gdd"] = e["gdd"]
@@ -245,6 +260,8 @@ def _seedbed(config, grid, s: AgroSettings, weather, daily, features_long, out: 
                 "median_days_from_sowing": _pct(e["days"], 50),
                 "median_gdd": _pct(e["gdd"], 50) if "gdd" in e else None,
                 "lag_days": {"p10": _pct(e["lag_days"], 10), "p90": _pct(e["lag_days"], 90)},
+                "median_sigma_days": _pct(e["sigma_days"], 50),
+                "cells_distinct_from_median": _distinct_shares(e["lag_class"]),
                 "median_image_gap_days": _pct(e["gap_days"], 50),
                 "refine": _refine(e, s.sowing_date, sb.refine_gap_days),
                 "cells_not_emerged": int(
@@ -273,6 +290,20 @@ def _seedbed(config, grid, s: AgroSettings, weather, daily, features_long, out: 
         out["summary"]["seedbed"] = info
     if bands and grid is not None:
         out["seedbed_bands"] = {k: v.reshape((grid.ny, grid.nx)) for k, v in bands.items()}
+
+
+def _distinct_shares(cls) -> dict | None:
+    """Share of assessed cells below, not different from and above the field median."""
+    c = np.asarray(cls, float)
+    ok = np.isfinite(c)
+    if not ok.any():
+        return None
+    n = ok.sum()
+    return {
+        "lower": float((c[ok] < 0).sum() / n),
+        "not_distinct": float((c[ok] == 0).sum() / n),
+        "higher": float((c[ok] > 0).sum() / n),
+    }
 
 
 def _refine(e: dict, sowing: date, max_gap_days: float) -> dict | None:

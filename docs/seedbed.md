@@ -13,6 +13,25 @@ uses four things instead.
 | Emergence delay (fAPAR curve) | grid cell, as fine as the image interval | where the crop came up later; the crop integrates temperature, moisture and sowing depth |
 | Soil temperature loggers | 3–5 points, hourly | how many degrees and degree days the contrast is really worth |
 
+## Reading the maps: differences between cells
+
+Every figure here is uncertain in level: NDMI is not a water content, the
+emergence threshold is not the botanical date, the model soil is not this
+soil. Much of that error is the same for every cell of a field on a given
+date, so it cancels when cells are compared with each other. The maps are
+therefore built as differences from the field median, and each comes with
+two more bands:
+
+| Band | Meaning |
+|---|---|
+| `..._sigma` | one standard deviation of the cell's difference from the median |
+| `..._class` | −1 lower / earlier, +1 higher / later: the difference exceeds two standard deviations. 0: the cell cannot be told apart from the median |
+
+Use the class band to decide **where** the field differs, and the value band
+only inside the classes ±1. The summary gives the share of cells in each
+class; a field where nearly all cells are 0 has no demonstrable pattern in
+that quantity this year. What does not cancel is stated per band below.
+
 ## Bare-soil wetness
 
 For every image date from `bare_days_before` (30) days before sowing to
@@ -29,6 +48,12 @@ and cloud-free (ley, winter crop, cloud).
   tillage, residue or noise, and the band should not be used. With one date
   it is empty.
 - `bare_soil_dates` gives the number of dates behind each cell.
+- `bare_soil_wetness_sigma` is the scatter of a cell's value between dates,
+  pooled over the field and divided by √dates. With one date there is no
+  scatter to measure: sigma and class are empty, and the map is a single
+  snapshot.
+- Not cancelled: anything that differs within the field on the image date,
+  such as partial tillage or residue.
 - Straw and stubble also lower B11. Ploughed, harrowed and rolled surfaces
   differ; a field tilled in parts on an image date shows the tillage border.
   Taking each date against its own median removes whole-field changes only.
@@ -47,6 +72,17 @@ crossing (or sowing and the first image). The delay is **not known more
 finely than this**. Cells that cross in the same interval differ only by how
 far they had come at the later image, so with a 20-day gap the band is
 closer to "canopy size at that image" than to a date.
+
+`emergence_sigma_days` is the precision of the *difference* between cells.
+Cells that cross in the same interval share the error of the straight line
+between the images; what is left is image noise (`fapar_noise`, 0.025 per
+image and cell), carried through the interpolation. Slow risers and long
+gaps get a large sigma. Two cells that cross in different intervals are
+certainly in that order, whatever the sigma. `emergence_lag_class` is +1
+for cells demonstrably later than the median.
+
+Not cancelled: growth that is curved differently in different cells within
+one interval. Shorter intervals are the remedy.
 
 ### Narrowing the interval with PlanetScope
 
@@ -108,6 +144,8 @@ seedbed:
   bare_days_after: 7
   bare_ndvi: 0.25
   emergence_fapar: 0.2
+  fapar_noise: 0.025
+  refine_gap_days: 7
   loggers: loggers.csv
   logger_positions: {hollow: [287410, 6968230], knoll: [287520, 6968310]}   # x, y in the field CRS
 ```
@@ -119,7 +157,8 @@ contain NDVI (and NDMI for the wetness).
 ## Outputs
 
 `L5_<field>_<year>_seedbed.tif` with bands `bare_soil_wetness`,
-`bare_soil_dates`, `emergence_days`, `emergence_lag_days`,
-`emergence_gap_days`, `emergence_gdd`; and a `seedbed` block in
+`bare_soil_wetness_sigma`, `bare_soil_class`, `bare_soil_dates`,
+`emergence_days`, `emergence_lag_days`, `emergence_sigma_days`,
+`emergence_lag_class`, `emergence_gap_days`, `emergence_gdd`; and a `seedbed` block in
 `L5_<field>_<year>_agroclimate.json` (dates used, repeatability, median
 emergence, spread of the delay, image gap, loggers).

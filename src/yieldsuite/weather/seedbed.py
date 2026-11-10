@@ -14,6 +14,11 @@ docs/design/gpp-vpm.md). Three things stand in for it:
   the gap between the two images around the crossing, which is reported.
 - **Soil temperature loggers** at a few places, to measure how large the
   within-field contrast really is.
+
+The maps are for comparing cells with each other. Each difference from the
+field median therefore comes with a standard deviation and a class: -1 / +1
+when the cell differs from the median by more than two standard deviations,
+0 when it cannot be told apart from it.
 """
 
 from __future__ import annotations
@@ -26,6 +31,14 @@ import pandas as pd
 
 from .agro import SOIL_TEMP_COLUMN, growing_degree_days
 from .rue import fapar_from_ndvi
+
+
+def distinct(diff, sigma, k: float = 2.0) -> np.ndarray:
+    """-1 / 0 / +1: is ``diff`` from the field median larger than ``k`` sigma? NaN if unknown."""
+    diff, sigma = np.asarray(diff, float), np.asarray(sigma, float)
+    with np.errstate(invalid="ignore"):
+        cls = np.where(np.abs(diff) > k * sigma, np.sign(diff), 0.0)
+    return np.where(np.isfinite(diff) & np.isfinite(sigma), cls, np.nan)
 
 
 def _by_date(wide: pd.DataFrame) -> pd.DataFrame:
@@ -60,13 +73,29 @@ def bare_soil_wetness(
         used.append(d)
     if not anomalies:
         nan = np.full(n_cells, np.nan)
-        return {"wetness": nan, "n_dates": np.zeros(n_cells), "dates": [], "repeatability": None}
+        return {
+            "wetness": nan,
+            "sigma": nan,
+            "class": nan,
+            "n_dates": np.zeros(n_cells),
+            "dates": [],
+            "repeatability": None,
+        }
     a = np.vstack(anomalies)
     n = np.isfinite(a).sum(axis=0)
     with np.errstate(invalid="ignore"):
         wet = np.where(n > 0, np.nansum(a, axis=0) / np.maximum(n, 1), np.nan)
+    # Standard error of the cell mean from the scatter between dates, pooled over
+    # cells: two or three dates are too few to estimate it cell by cell.
+    dof = np.maximum(n - 1, 0).sum()
+    sigma = np.full(n_cells, np.nan)
+    if dof > 0:
+        pooled = np.sqrt(np.nansum((a - wet) ** 2) / dof)
+        sigma = np.where(n > 0, pooled / np.sqrt(np.maximum(n, 1)), np.nan)
     return {
         "wetness": wet,
+        "sigma": sigma,
+        "class": distinct(wet, sigma),
         "n_dates": n.astype(float),
         "dates": [str(d) for d in used],
         "repeatability": _mean_pairwise_correlation(a),
@@ -90,6 +119,7 @@ def emergence(
     harvest: date | None = None,
     gdd_cum: pd.Series | None = None,
     threshold: float = 0.2,
+    fapar_noise: float = 0.025,
 ) -> dict:
     """Day from sowing when fAPAR first reaches ``threshold``, per cell.
 
@@ -97,12 +127,19 @@ def emergence(
     ``gap_days`` is the distance between the two images (or sowing and the
     first image) around the crossing: the delay is not known more finely.
     More images in that interval (PlanetScope, drone) narrow it.
+
+    ``sigma_days`` is the precision of the day from image noise alone
+    (``fapar_noise``, one standard deviation per image). Cells that cross in
+    the same interval share the error of the straight-line assumption, so
+    their *difference* is known to about ``sigma_days`` even when the date
+    itself is only known to within the gap. ``lag_class`` uses it.
     """
     ndvi = _by_date(ndvi)
     obs = [d for d in ndvi.index if d > sowing and (harvest is None or d < harvest)]
     n_cells = ndvi.shape[1]
     days = np.full(n_cells, np.nan)
     gap = np.full(n_cells, np.nan)
+    sigma = np.full(n_cells, np.nan)
     start = np.full(n_cells, np.nan)  # day of the image (or sowing) before the crossing
     if obs:
         t = np.asarray([(d - sowing).days for d in obs], dtype=float)
@@ -123,12 +160,20 @@ def emergence(
             )
             gap[c] = tc[k] - tc[k - 1]
             start[c] = tc[k - 1]
+            rise = fc[k] - fc[k - 1]
+            # the value at sowing is 0 by definition and carries no noise
+            before = 0.0 if k == 1 else (fc[k] - threshold) ** 2
+            sigma[c] = (
+                gap[c] * fapar_noise * np.sqrt(before + (threshold - fc[k - 1]) ** 2) / rise**2
+            )
     out = {
         "days": days,
         "gap_days": gap,
         "gap_start_days": start,
         "lag_days": days - np.nanmedian(days) if obs else days,
     }
+    out["sigma_days"] = sigma
+    out["lag_class"] = distinct(out["lag_days"], sigma)
     if gdd_cum is not None and np.isfinite(days).any():
         g = pd.Series(gdd_cum.to_numpy(dtype=float), index=pd.to_datetime(pd.Index(gdd_cum.index)))
         x = np.asarray([(d.date() - sowing).days for d in g.index], dtype=float)

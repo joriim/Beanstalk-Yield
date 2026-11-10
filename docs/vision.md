@@ -38,6 +38,10 @@ seasons), not from a single correlation.
    logged, and credentials never leave the user's environment.
 3. **Honest about quality.** Every product states whether it is absolute or
    relative and how uncertain it is; filled cells are labelled.
+   Uncertainty is assessed at every step: data, model and analysis. Where
+   the absolute level cannot be trusted, cells and fields are compared with
+   each other, because errors they share cancel; the product then says which
+   differences are large enough to be real.
 4. **Vendor-neutral.** Any combine, sensor, drone, satellite or farm software
    can plug in.
 5. **One core, many front ends.** The same computation behind every interface,

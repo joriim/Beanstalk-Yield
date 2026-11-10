@@ -103,6 +103,26 @@ So: compare cells and dates within a field-year. Do not report the absolute
 level as measured carbon uptake. NDVI also saturates in dense stands, which
 compresses differences between the best parts of a field.
 
+## Uncertainty of differences
+
+ε₀, the fAPAR relation, the PAR fraction and the temperature curve are the
+same for every cell, so they scale or shift all cells together and cancel
+when cells are compared. The season maps are therefore also given as the
+ratio to the field median, with a standard deviation and the class band of
+[seedbed.md](../seedbed.md) (−1 / 0 / +1 at two standard deviations).
+
+The standard deviation of a cell's cumulative sum comes from what does *not*
+cancel: image noise per cell and date (`fapar_noise`, and the same for
+NDMI), carried through the interpolation weights to the sum. Noise at an
+image date affects every day interpolated from it, so the days are not
+independent; the sum is computed as a weighted sum of the image values and
+the variance follows from the weights. Long gaps weight single images
+heavily and widen the band.
+
+Between fields the shared terms no longer cancel fully: weather cells,
+sowing dates and image dates differ. Field comparisons use the same crop
+and year and are reported with both fields' bands.
+
 ## Checks
 
 - T = W = 1 gives `gpp_cum` = ε₀ × `ipar_cum` exactly (unit test).
