@@ -16,6 +16,7 @@ nav:
   - Vision: vision.md
   - Architecture: architecture.md
   - Design – processing levels: design/processing-levels.md
+  - Design – GPP (VPM): design/gpp-vpm.md
   - Harvester chain L1A–L4: harvester-chain.md
   - L5 Sentinel-2 fusion: l5-sentinel2.md
   - Multi-source imagery and WebODM: multisource.md

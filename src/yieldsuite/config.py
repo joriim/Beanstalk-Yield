@@ -92,6 +92,7 @@ class CropSettings:
     harvest_date: str | None = None  # ISO date; default: last harvesting record
     t_base_c: float = 5.0
     t_cap_c: float | None = None
+    soil_t_base_c: float | None = None  # topsoil thermal sum base; default t_base_c
     harvest_index: float = 0.45
     par_fraction: float = 0.48
     stages_gdd: dict[str, float] = field(default_factory=dict)  # e.g. {heading: 700}
@@ -102,7 +103,8 @@ class CropSettings:
 class WeatherConfig:
     source: str = "open-meteo"
     model: str = "era5_seamless"  # era5 | era5_land | era5_seamless | best_match
-    hourly: list[str] = field(default_factory=list)  # e.g. soil_moisture_0_to_7cm
+    # e.g. soil_temperature_0_to_7cm (topsoil thermal sum), soil_moisture_0_to_7cm
+    hourly: list[str] = field(default_factory=list)
     round_deg: float = 0.05  # location sent to the API is rounded to this
 
 

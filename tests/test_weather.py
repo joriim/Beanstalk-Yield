@@ -195,3 +195,62 @@ def test_mcp_get_weather_uses_fetch(tmp_path, monkeypatch):
         )
     )
     assert len(calls) == 1
+
+
+def soil_payload(days=200):
+    p = fake_payload(days=days)
+    n = len(p["hourly"]["time"])
+    # 3 °C until 10 May (day 39), then 15 °C; one day missing
+    soil = [3.0 if i < 39 * 24 else 15.0 for i in range(n)]
+    soil[50 * 24 : 51 * 24] = [None] * 24
+    p["hourly"]["soil_temperature_0_to_7cm"] = soil
+    return p
+
+
+def test_topsoil_thermal_sum():
+    w = parse_response(soil_payload())
+    s = AgroSettings(sowing_date=date(2026, 5, 5), harvest_date=date(2026, 5, 24))
+    out = season_summary(w, 62.8, s)
+    # 5 days at 3 °C add nothing; 15 days at 15 °C minus one missing = 14 x 10 °Cd
+    assert out["soil_gdd_c_days"] == pytest.approx(140.0)
+    assert out["soil_temp_missing_days"] == 1 and out["soil_t_base_c"] == 5.0
+    assert out["soil_temp_first_week_c"] == pytest.approx((5 * 3 + 2 * 15) / 7)
+    s.soil_t_base_c = 0.0
+    assert season_summary(w, 62.8, s)["soil_gdd_c_days"] == pytest.approx(5 * 3 + 14 * 15)
+    assert "soil_gdd_c_days" not in season_summary(parse_response(fake_payload()), 62.8, s)
+
+
+def test_cache_refetched_when_config_asks_for_more(tmp_path, example_config_path):
+    from yieldsuite.config import CropSettings, load_config
+    from yieldsuite.weather import openmeteo
+    from yieldsuite.weather.run import get_weather, run_agroclimate, weather_path, write_agroclimate
+
+    cfg = load_config(example_config_path)
+    cfg.output_dir = tmp_path / "output"
+    cfg.location = (62.8, 22.85)
+    cfg.crop = CropSettings(sowing_date="2026-05-05", harvest_date="2026-08-25")
+    openmeteo.save(parse_response(fake_payload()), {"request": {}}, weather_path(cfg))
+    calls = []
+
+    def fetch(req):
+        calls.append(req)
+        return parse_response(soil_payload()), {"request": {"model": req.model}}
+
+    get_weather(cfg, fetch=fetch)
+    assert not calls  # the cache covers the config
+    cfg.weather.hourly = ["soil_temperature_0_to_7cm"]
+
+    def offline(req):
+        raise OSError("no network")
+
+    res = run_agroclimate(cfg, fetch=offline)  # falls back to the old cache, and says so
+    assert "weather_note" in res["summary"] and "soil_gdd_c_days" not in res["summary"]
+    res = run_agroclimate(cfg, fetch=fetch)
+    assert len(calls) == 1 and "soil_temperature_0_to_7cm" in calls[0].url()
+    assert res["summary"]["soil_gdd_c_days"] > 0 and res["summary"]["weather_model"]
+    files = write_agroclimate(cfg, res, None)
+    daily = pd.read_csv(files["agroclimate_daily"])
+    assert daily["date"].iloc[0] == "2026-05-05"
+    assert daily["soil_gdd_cum"].iloc[-1] == pytest.approx(res["summary"]["soil_gdd_c_days"])
+    assert daily["gdd_cum"].is_monotonic_increasing
+    get_weather(cfg, fetch=offline)  # now cached with the variable: no fetch

@@ -8,6 +8,9 @@
 - Photothermal quotient PTQ = PAR / (Tmean - Tbase) over a critical window,
   related to grain number in cereals.
 - Water balance P - ET0, heat days (Tmax > 30 °C), frost days (Tmin < 0 °C).
+- Topsoil thermal sum: the same degree-day sum from the ERA5-Land soil
+  temperature of the 0-7 cm layer, when that hourly variable was fetched.
+  It is one value per ~9 km model cell, not a within-field map.
 """
 
 from __future__ import annotations
@@ -19,6 +22,8 @@ import numpy as np
 import pandas as pd
 
 GSC = 0.0820  # solar constant, MJ/m2/min
+SOIL_TEMP_VARIABLE = "soil_temperature_0_to_7cm"  # Open-Meteo hourly, from ERA5-Land
+SOIL_TEMP_COLUMN = f"{SOIL_TEMP_VARIABLE}_daily_mean"
 
 
 def extraterrestrial_radiation(lat_deg: float, doy) -> np.ndarray:
@@ -61,6 +66,7 @@ class AgroSettings:
     harvest_date: date | None = None
     t_base_c: float = 5.0
     t_cap_c: float | None = None
+    soil_t_base_c: float | None = None  # base of the topsoil thermal sum; default t_base_c
     par_fraction: float = 0.48
     harvest_index: float = 0.45  # grain / above-ground dry biomass
     # stage name -> GDD from sowing (°Cd), crop- and variety-specific; set your own
@@ -87,6 +93,12 @@ def daily_indices(weather: pd.DataFrame, lat: float, s: AgroSettings) -> pd.Data
     if s.sowing_date:
         in_season &= idx.date >= s.sowing_date
     w["gdd_cum"] = np.cumsum(np.where(in_season, w["gdd"], 0.0))
+    if SOIL_TEMP_COLUMN in w:
+        base = s.t_base_c if s.soil_t_base_c is None else s.soil_t_base_c
+        # A missing day adds nothing to the sum; the summary reports how many were missing.
+        soil = growing_degree_days(w[SOIL_TEMP_COLUMN].to_numpy(dtype=float), base)
+        w["soil_gdd"] = soil
+        w["soil_gdd_cum"] = np.cumsum(np.where(in_season, np.nan_to_num(soil), 0.0))
     return w
 
 
@@ -126,6 +138,14 @@ def season_summary(weather: pd.DataFrame, lat: float, s: AgroSettings) -> dict:
     }
     if out["precipitation_mm"] is not None and out["et0_mm"] is not None:
         out["water_balance_mm"] = out["precipitation_mm"] - out["et0_mm"]
+    if "soil_gdd" in season:
+        soil_t = season[SOIL_TEMP_COLUMN]
+        out["soil_gdd_c_days"] = float(season["soil_gdd"].sum())
+        out["soil_t_base_c"] = s.t_base_c if s.soil_t_base_c is None else s.soil_t_base_c
+        out["soil_temp_missing_days"] = int(soil_t.isna().sum())
+        first_week = soil_t.iloc[:7]
+        if s.sowing_date and first_week.notna().any():
+            out["soil_temp_first_week_c"] = float(first_week.mean())
     if "sunshine_duration" in season:
         out["sunshine_h"] = float(season["sunshine_duration"].sum() / 3600)
 

@@ -40,6 +40,7 @@ def agro_settings(config: FieldYearConfig, harvest_fallback: date | None = None)
         harvest_date=date.fromisoformat(c.harvest_date) if c.harvest_date else harvest_fallback,
         t_base_c=c.t_base_c,
         t_cap_c=c.t_cap_c,
+        soil_t_base_c=c.soil_t_base_c,
         par_fraction=c.par_fraction,
         harvest_index=c.harvest_index,
         stages_gdd=dict(c.stages_gdd),
@@ -60,9 +61,9 @@ def get_weather(
 ) -> tuple[pd.DataFrame, dict, tuple[float, float]]:
     path = weather_path(config)
     lat, lon = field_location(config, grid)
-    if path.exists() and not refresh:
-        df, prov = openmeteo.load(path)
-        return df, prov, (lat, lon)
+    cached = openmeteo.load(path) if path.exists() else None
+    if cached and not refresh and not _cache_stale(cached, config):
+        return cached[0], cached[1], (lat, lon)
     req = openmeteo.WeatherRequest(
         lat=lat,
         lon=lon,
@@ -75,9 +76,25 @@ def get_weather(
     today = date.today().isoformat()
     if req.end > today:
         req.end = today
-    df, prov = (fetch or openmeteo.fetch_daily)(req)
+    try:
+        df, prov = (fetch or openmeteo.fetch_daily)(req)
+    except Exception:
+        if cached is None or refresh:
+            raise
+        # No network: the older cache is better than nothing; it lacks what was added.
+        stale = "cache predates the configured weather model or hourly variables; refetch failed"
+        return cached[0], cached[1] | {"stale": stale}, (lat, lon)
     openmeteo.save(df, prov, path)
     return df, prov, (lat, lon)
+
+
+def _cache_stale(cached: tuple[pd.DataFrame, dict], config: FieldYearConfig) -> bool:
+    """True when the config asks for a model or hourly variable the cache was not fetched with."""
+    df, prov = cached
+    if any(f"{v}_daily_mean" not in df for v in config.weather.hourly):
+        return True
+    model = prov.get("request", {}).get("model")
+    return model is not None and model != config.weather.model
 
 
 def run_agroclimate(
@@ -98,13 +115,21 @@ def run_agroclimate(
         "lon": prov.get("request", {}).get("lon", round(lon, 2)),
     }
     summary["weather_source"] = prov.get("source")
+    if prov.get("stale"):
+        summary["weather_note"] = prov["stale"]
+    summary["weather_model"] = prov.get("request", {}).get("model", config.weather.model)
     summary["crop"] = {
         "name": s.crop,
         "sowing_date": str(s.sowing_date),
         "harvest_date": str(s.harvest_date),
         "harvest_index": s.harvest_index,
     }
-    out = {"summary": summary, "weather_file": str(weather_path(config))}
+    daily = daily_indices(weather, lat, s)
+    if s.sowing_date:
+        daily = daily[pd.Index(daily.index) >= s.sowing_date]
+    if s.harvest_date:
+        daily = daily[pd.Index(daily.index) <= s.harvest_date]
+    out = {"summary": summary, "weather_file": str(weather_path(config)), "daily": daily}
     if s.sowing_date is None:
         summary["note"] = "no sowing date: totals cover the whole fetched period"
 
@@ -160,6 +185,11 @@ def write_agroclimate(config: FieldYearConfig, result: dict, grid: Grid | None) 
     p = out / f"{stem}_agroclimate.json"
     p.write_text(json.dumps(result["summary"], indent=2, default=str))
     files["agroclimate"] = str(p)
+    if "daily" in result:
+        cols = ["gdd", "gdd_cum", "soil_gdd", "soil_gdd_cum", "par_mj_m2", "clearness_index"]
+        d = out / f"{stem}_agroclimate_daily.csv"
+        result["daily"][[c for c in cols if c in result["daily"]]].to_csv(d, index_label="date")
+        files["agroclimate_daily"] = str(d)
     if "rue_bands" in result and grid is not None:
         try:
             from ..l4.io import write_cog
