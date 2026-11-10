@@ -162,6 +162,16 @@ In `output_dir`:
   flagged_share, passes
 - `L4_<field>_<year>_qa.json`: delays used, flag counts, k factors,
   mass-conservation check, warnings
+- `<field>_<year>_run.json`: run manifest for audit: software version and
+  commit, start/end time, settings and machine-profile hashes, and every input
+  and output with size and SHA-256 (`yieldsuite verify <manifest>` re-checks them)
+
+`yieldsuite report field.yaml [--lang fi|en]` then writes `output/report/`: a
+figure per level (L1A records, L1B signals, L2 yield per record, L3 flags, L4
+grid and quality bands; L5 and Q4 when run), the process description of each
+level with this run's parameters (`*_process.md`), the audit (`*_audit.json`,
+with a fresh re-hash) and one self-contained HTML report. Needs
+`pip install yieldsuite[report]`.
 
 ## Not yet
 

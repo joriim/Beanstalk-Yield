@@ -68,6 +68,25 @@ def plan(config: FieldYearConfig, to_level: Level, from_level: Level = Level.L1A
 
 
 def run(config: FieldYearConfig, to_level: Level, from_level: Level = Level.L1A) -> RunSummary:
+    """Run the chain; the run manifest (inputs, settings, outputs with SHA-256)
+    is written next to the products, for failed runs too."""
+    from .audit import now_utc
+
+    started = now_utc()
+    summary = _run(config, to_level, from_level)
+    if summary.completed or summary.error:
+        from .audit import write_run_manifest
+
+        try:
+            summary.outputs["run_manifest"] = str(
+                write_run_manifest(config, summary, started, now_utc())
+            )
+        except OSError as exc:  # pragma: no cover - read-only output folder
+            summary.notes.append(f"run manifest not written: {exc}")
+    return summary
+
+
+def _run(config: FieldYearConfig, to_level: Level, from_level: Level) -> RunSummary:
     summary = RunSummary(config.field_id, config.year, to_level, config.product_class)
     state: dict = {}
     for stage in plan(config, to_level, from_level):

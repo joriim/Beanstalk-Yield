@@ -162,6 +162,7 @@ class FieldYearConfig:
     local_outlier_radius_m: float = 20.0  # neighbourhood of the local Moran's I flag
     quality: QualityConfig | None = None
     parcel_ids: list[str] = field(default_factory=list)  # parcel numbers of this field
+    source_path: Path | None = None  # the YAML file this config was read from (audit)
 
     @property
     def sentinel2(self) -> ImagerySource | None:
@@ -266,6 +267,7 @@ def load_config(path: str | Path) -> FieldYearConfig:
         local_outlier_radius_m=float(raw.get("local_outlier_radius_m", 20.0)),
         quality=_quality(raw.get("quality"), base),
         parcel_ids=[str(v) for v in raw.get("parcel_ids") or []],
+        source_path=path.resolve(),
     )
 
 

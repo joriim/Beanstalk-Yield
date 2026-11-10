@@ -465,6 +465,16 @@ def build_parser() -> argparse.ArgumentParser:
     z.add_argument("--crs", help="CRS if the rasters do not carry one")
     z.set_defaults(func=_cmd_zones)
 
+    rp = sub.add_parser("report", help="level-by-level report: figures, process, audit")
+    rp.add_argument("config")
+    rp.add_argument("--out", help="folder (default: <output_dir>/report)")
+    rp.add_argument("--lang", default="fi", choices=["fi", "en"])
+    rp.set_defaults(func=_cmd_report)
+
+    vf = sub.add_parser("verify", help="check a run manifest against the files (SHA-256)")
+    vf.add_argument("manifest", help="<field>_<year>_run.json")
+    vf.set_defaults(func=_cmd_verify)
+
     nb = sub.add_parser("nbalance", help="nitrogen removal and balance per management zone")
     nb.add_argument("--zones", required=True, help="zone GeoTIFF from yieldsuite zones")
     nb.add_argument("--yield-map", required=True, help="L4/L5 GeoTIFF of the season")
@@ -690,6 +700,35 @@ def _cmd_prescription(args) -> int:
     for k, v in files.items():
         print(f"  {k:8} {v}")
     print("Check the file on the target terminal before use.")
+    return 0
+
+
+def _cmd_report(args) -> int:
+    from .report import build_report
+
+    cfg = load_config(args.config)
+    try:
+        files = build_report(cfg, args.out, lang=args.lang)
+    except (FileNotFoundError, ValueError, ImportError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    print(f"report   {files['html']}")
+    print(f"process  {files['process']}")
+    print(f"audit    {files['audit']}")
+    for level, path in files["figures"].items():
+        print(f"  {level:4} {path}")
+    return 0
+
+
+def _cmd_verify(args) -> int:
+    from .audit import verify_manifest
+
+    problems = verify_manifest(args.manifest)
+    if problems:
+        for p in problems:
+            print(p)
+        return 1
+    print("all inputs and outputs unchanged since the run")
     return 0
 
 
