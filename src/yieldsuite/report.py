@@ -68,6 +68,34 @@ TEXT = {
         "warnings": "Varoitukset",
         "none": "ei",
         "generated": "Raportti luotu",
+        "prototype": "Prototyyppi – tulokset eivät ole vielä validoituja",
+        "findings": "Havainnot",
+        "overview": "Ketju yhdellä silmäyksellä",
+        "figure": "Kuva",
+        "captions": {
+            "pipeline": "Tasot L0–L4 ja tietueiden määrä kullakin tasolla. Jokainen taso "
+            "on oma tuotteensa, ja minkä tahansa tason voi laskea uudelleen raakadatasta.",
+            "summary": "Vasemmalla 10 m solujen satojakauma (pystyviiva: keskiarvo). "
+            "Keskellä tietueiden kulku: rivit tiedostossa → tietueet → puintitietueet → "
+            "puhtaat tietueet. Oikealla massatase: puitu massa, siitä puhtaiden "
+            "tietueiden massa ja ruudukkoon jaettu massa (kahden viimeisen pitää olla "
+            "yhtä suuret).",
+            "L1A": "Jokainen piste on yksi sekunnin tietue, väri kertoo ajan puinnin "
+            "alusta. Harmaat pisteet: leikkuupöytä ylhäällä (käännökset, siirtymät).",
+            "L1B": "Massavirta, kosteus ja nopeus koko puintipäivältä. Katkot ovat "
+            "päisteitä ja taukoja; harmaat pisteet ovat aikoja, jolloin leikkuupöytä "
+            "oli ylhäällä.",
+            "L2": "Sato tietueittain, kun viive, antennin paikka ja päällekkäisyys on "
+            "huomioitu. Oikealla tietueiden tehollisen ja nimellisen pinta-alan suhde: "
+            "1 = ei päällekkäisyyttä.",
+            "L3": "Liputetut tietueet värin mukaan (ensimmäinen lippu), puhtaat harmaana. "
+            "Tietueita ei poisteta, joten säännöt voi muuttaa ja ajaa uudelleen.",
+            "L4": "Lopullinen 10 m satokartta ja sen laatukaistat: kattavuus, tietueiden "
+            "määrä solussa ja liputettujen osuus. Heikon kattavuuden solut ovat "
+            "epävarmempia.",
+            "L5": "Fuusio satelliitti- ja dronekuvien kanssa.",
+            "Q4": "Jyvän laatu (proteiini, typen otto).",
+        },
         "verify_ok": "Kaikki syötteet ja tuotteet ovat tavu tavulta samat kuin ajossa.",
         "verify_bad": "Tiedostoja on muuttunut ajon jälkeen:",
         "classes": {
@@ -114,6 +142,30 @@ TEXT = {
         "warnings": "Warnings",
         "none": "none",
         "generated": "Report generated",
+        "prototype": "Prototype – results not yet validated",
+        "findings": "Findings",
+        "overview": "The chain at a glance",
+        "figure": "Figure",
+        "captions": {
+            "pipeline": "Levels L0–L4 and the number of records at each. Every level is "
+            "a product of its own and can be recomputed from the raw data.",
+            "summary": "Left: yield distribution of the 10 m cells (line: mean). Middle: "
+            "record flow, rows in the file → records → harvesting records → clean "
+            "records. Right: mass balance, harvested mass, mass of clean records and "
+            "mass apportioned to the grid (the last two must be equal).",
+            "L1A": "Each dot is a one-second record, coloured by time since the start. "
+            "Grey: header up (turns, transport).",
+            "L1B": "Mass flow, moisture and speed over the harvest day. Gaps are "
+            "headlands and breaks; grey dots are times with the header up.",
+            "L2": "Yield per record after delay, antenna offset and overlap. Right: "
+            "effective / nominal area per record, 1 = no overlap.",
+            "L3": "Flagged records by colour (first flag), clean records grey. Nothing "
+            "is deleted, so the rules can be changed and re-run.",
+            "L4": "The final 10 m yield map and its quality bands: coverage, records per "
+            "cell and flagged share. Cells with low coverage are less certain.",
+            "L5": "Fusion with satellite and drone imagery.",
+            "Q4": "Grain quality (protein, N uptake).",
+        },
         "verify_ok": "Every input and output is byte-identical to the run.",
         "verify_bad": "Files have changed since the run:",
         "classes": {
@@ -165,7 +217,7 @@ def process_steps(qa: dict, manifest: dict, lang: str = "fi") -> list[dict]:
                 else "Original files are kept unchanged; their SHA-256 is recorded in the audit."
             ),
             "parameters": {},
-            "result": f"{_fmt(ing.get('rows_in'))} {'riviä' if fi else 'rows'}",
+            "result": _l0_result(ing, fi),
             "outputs": "–",
         }
     )
@@ -320,6 +372,17 @@ def process_steps(qa: dict, manifest: dict, lang: str = "fi") -> list[dict]:
         }
     )
     return steps
+
+
+def _l0_result(ing: dict, fi: bool) -> str:
+    rows_field, rows_file = _rows_for_field(ing)
+    if rows_field != rows_file:
+        return (
+            f"{_fmt(rows_file)} riviä tiedostossa, joista tämän lohkon {_fmt(rows_field)}"
+            if fi
+            else f"{_fmt(rows_file)} rows in the file, {_fmt(rows_field)} of them this field"
+        )
+    return f"{_fmt(rows_file)} {'riviä' if fi else 'rows'}"
 
 
 def process_markdown(steps: list[dict], lang: str = "fi") -> str:
@@ -499,6 +562,179 @@ def figure_raster(path_tif, bands, titles, boundary, path, suptitle):
     return _save(fig, path)
 
 
+def _rows_for_field(ing: dict) -> tuple[int | None, int | None]:
+    """(rows of this field, rows in the file): a 'where' filter keeps a subset."""
+    import re
+
+    for d in ing.get("derived", []):
+        m = re.match(r"kept (\d+) of (\d+) rows", d)
+        if m:
+            return int(m.group(1)), int(m.group(2))
+    return ing.get("rows_in"), ing.get("rows_in")
+
+
+def _harvesting(gdf) -> np.ndarray:
+    """Harvesting records as counted in the QA (header down and harvested area)."""
+    on = gdf["header_down"].to_numpy(bool)
+    if "effective_area" in gdf:
+        on &= gdf["effective_area"].to_numpy(float) > 0
+    return on
+
+
+def figure_pipeline(qa, manifest, path, lang):
+    """Boxes L0 -> L4 with the number of records and the key result of each level."""
+    plt = _plt()
+    from matplotlib.patches import FancyBboxPatch
+
+    fi = lang == "fi"
+    ing = (qa.get("ingest") or [{}])[0]
+    n_h = qa.get("harvesting_records")
+    n_clean = None
+    if n_h is not None:
+        res = manifest.get("result") or {}
+        pct = res.get("flagged_pct")
+        n_clean = round(n_h * (1 - pct / 100)) if pct is not None else None
+    mc = qa.get("mass_conservation", {})
+    grid = qa.get("grid", {})
+    rows_field, _ = _rows_for_field(ing)
+    mf = ing.get("summary", {}).get("median_mass_flow_kg_s")
+    w = {
+        "rows": "riviä" if fi else "rows",
+        "rec": "tietuetta" if fi else "records",
+        "harv": "puinnissa" if fi else "harvesting",
+        "clean": "puhdasta" if fi else "clean",
+    }
+    boxes = [
+        ("L0", "raakadata" if fi else "raw data", f"{_fmt(rows_field)} {w['rows']}"),
+        ("L1A", "tulkinta" if fi else "decoding", f"{_fmt(ing.get('rows_out'))} {w['rec']}"),
+        ("L1B", "massavirta" if fi else "mass flow", f"med. {_fmt(mf, 1, 'kg/s')}"),
+        ("L2", "paikannettu sato" if fi else "georef. yield", f"{_fmt(n_h)} {w['harv']}"),
+        ("L3", "liput, täsmäytys" if fi else "flags, reconcile", f"{_fmt(n_clean)} {w['clean']}"),
+        (
+            "L4",
+            f"{_fmt(grid.get('resolution'), 0)} m " + ("ruudukko" if fi else "grid"),
+            f"{_fmt((mc.get('cell_mass_kg') or 0) / 1000, 1)} t",
+        ),
+    ]
+    fig, ax = plt.subplots(figsize=(12, 2.4))
+    ax.set_xlim(0, len(boxes) * 2)
+    ax.set_ylim(0, 2)
+    ax.axis("off")
+    colours = ["#d9e6f2", "#d9e6f2", "#d9e6f2", "#dcefdc", "#fbe8cc", "#e3dcf2"]
+    for i, (lvl, name, num) in enumerate(boxes):
+        x = i * 2 + 0.15
+        ax.add_patch(
+            FancyBboxPatch((x, 0.35), 1.6, 1.3, boxstyle="round,pad=0.05", fc=colours[i], ec="#555")
+        )
+        ax.text(x + 0.8, 1.35, lvl, ha="center", va="center", fontsize=14, weight="bold")
+        ax.text(x + 0.8, 0.98, name, ha="center", va="center", fontsize=9)
+        ax.text(x + 0.8, 0.62, num, ha="center", va="center", fontsize=9, color="#333")
+        if i < len(boxes) - 1:
+            ax.annotate(
+                "",
+                xy=(x + 1.95, 1.0),
+                xytext=(x + 1.68, 1.0),
+                arrowprops={"arrowstyle": "->", "color": "#555", "lw": 1.5},
+            )
+    return _save(fig, path)
+
+
+def figure_summary(gdf, qa, l4_path, path, lang):
+    """Yield distribution of the grid, record flow and mass balance."""
+    plt = _plt()
+    fi = lang == "fi"
+    fig, axes = plt.subplots(1, 3, figsize=(13, 3.8))
+    ax = axes[0]
+    if l4_path is not None and Path(l4_path).exists():
+        import rasterio
+
+        with rasterio.open(l4_path) as src:
+            y = src.read(1, masked=True).compressed()
+        ax.hist(y, bins=40, color="#4c9a6a")
+        ax.axvline(float(np.mean(y)), color="k", lw=1)
+        ax.set_xlabel("t/ha")
+        ax.set_ylabel("soluja" if fi else "cells")
+    ax.set_title("L4 satojakauma" if fi else "L4 yield distribution")
+
+    ing = (qa.get("ingest") or [{}])[0]
+    on = _harvesting(gdf)
+    clean = on & (gdf["flags"].to_numpy(np.int64) == 0)
+    labels = (
+        ["rivit", "tietueet", "puinnissa", "puhtaat"]
+        if fi
+        else ["rows", "records", "harvesting", "clean"]
+    )
+    rows_field, _ = _rows_for_field(ing)
+    values = [rows_field or 0, len(gdf), int(on.sum()), int(clean.sum())]
+    axes[1].barh(labels, values, color=["#9aa5ad", "#7fa7c9", "#4f86b5", "#2f6e9e"])
+    axes[1].invert_yaxis()
+    for i, v in enumerate(values):
+        axes[1].text(v, i, f" {_fmt(v)}", va="center", fontsize=8)
+    axes[1].set_title("tietueiden kulku" if fi else "record flow")
+    axes[1].set_xlim(0, max(values) * 1.3 if values and max(values) else 1)
+
+    mc = qa.get("mass_conservation", {})
+    total = (qa.get("reconciled_mass_kg") or 0) / 1000
+    clean_t = (mc.get("clean_mass_kg") or 0) / 1000
+    cell_t = (mc.get("cell_mass_kg") or 0) / 1000
+    mlabels = ["puitu", "puhtaat", "ruudukossa"] if fi else ["harvested", "clean", "on grid"]
+    axes[2].bar(mlabels, [total, clean_t, cell_t], color=["#b08850", "#d4a95c", "#e8c77f"])
+    for i, v in enumerate([total, clean_t, cell_t]):
+        axes[2].text(i, v, f"{v:.1f} t", ha="center", va="bottom", fontsize=8)
+    axes[2].set_ylabel("t")
+    axes[2].set_title("massatase" if fi else "mass balance")
+    fig.tight_layout()
+    return _save(fig, path)
+
+
+def _redact(obj):
+    """File paths -> file names, for a report that may be shown to others."""
+    if isinstance(obj, dict):
+        return {k: _redact(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_redact(v) for v in obj]
+    if isinstance(obj, str) and ("/" in obj or "\\" in obj) and len(obj) > 1:
+        return Path(obj).name
+    return obj
+
+
+def _notes_html(text: str) -> str:
+    """Analyst notes: '## ' headings, '- ' bullets, blank-line paragraphs, **bold**."""
+    import re
+
+    out, items, para = [], [], []
+
+    def inline(s):
+        s = html.escape(s)
+        return re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", s)
+
+    def flush():
+        if items:
+            out.append("<ul>" + "".join(f"<li>{inline(i)}</li>" for i in items) + "</ul>")
+            items.clear()
+        if para:
+            out.append(f"<p>{inline(' '.join(para))}</p>")
+            para.clear()
+
+    for line in text.splitlines():
+        st = line.strip()
+        if not st:
+            flush()
+        elif st.startswith("## "):
+            flush()
+            out.append(f"<h3>{inline(st[3:])}</h3>")
+        elif st.startswith("- "):
+            if para:
+                flush()
+            items.append(st[2:])
+        else:
+            if items:
+                flush()
+            para.append(st)
+    flush()
+    return "".join(out)
+
+
 # --- report ----------------------------------------------------------------------
 
 
@@ -514,6 +750,11 @@ def _table(headers, rows) -> str:
 
 
 CSS = """
+.badge{background:#fbe8cc;color:#6b4a12;border-radius:999px;padding:2px 10px;font-size:.8rem}
+figure{margin:12px 0}
+figcaption{color:var(--muted);font-size:.88rem;margin-top:4px}
+.notes{background:var(--card);border:1px solid var(--line);border-left:4px solid var(--accent);
+  border-radius:8px;padding:4px 16px}
 :root{--bg:#fff;
   --fg:#1d2327;
   --muted:#5f6b73;
@@ -569,8 +810,21 @@ dl{display:grid;grid-template-columns:max-content 1fr;gap:2px 14px;margin:6px 0}
 dt{color:var(--muted)}"""
 
 
-def build_report(config, out_dir: str | Path | None = None, lang: str = "fi") -> dict:
-    """Write figures, process description, audit JSON and the HTML report."""
+def build_report(
+    config,
+    out_dir: str | Path | None = None,
+    lang: str = "fi",
+    *,
+    notes: str | None = None,
+    title: str | None = None,
+    redact: bool = False,
+) -> dict:
+    """Write figures, process description, audit JSON and the HTML report.
+
+    ``notes``: the analyst's findings (plain text with '## ' headings and '- '
+    bullets) shown at the top. ``redact``: show file names instead of paths in
+    the HTML and the audit JSON, for a report that is shown to others.
+    """
     import geopandas as gpd
 
     if lang not in TEXT:
@@ -597,6 +851,8 @@ def build_report(config, out_dir: str | Path | None = None, lang: str = "fi") ->
         boundary = gpd.read_file(config.boundary).to_crs(gdf.crs)
 
     figs = {
+        "pipeline": figure_pipeline(qa, manifest, fdir / "pipeline.png", lang),
+        "summary": figure_summary(gdf, qa, l4_path, fdir / "summary.png", lang),
         "L1A": figure_l1a(gdf, boundary, fdir / "L1A_records.png", lang),
         "L1B": figure_l1b(gdf, fdir / "L1B_signals.png", lang),
         "L2": figure_l2(gdf, boundary, fdir / "L2_yield_records.png", lang),
@@ -650,11 +906,17 @@ def build_report(config, out_dir: str | Path | None = None, lang: str = "fi") ->
         "qa_warnings": qa.get("warnings", []),
         "verification": {"ok": not problems, "problems": problems},
     }
+    if redact:
+        audit = _redact(audit)
+        manifest = audit["manifest"]
+        qa = {**qa, "ingest": audit["ingest"]}
     audit_path = rdir / f"{stem}_audit.json"
     audit_path.write_text(json.dumps(audit, indent=2, default=str))
 
     html_path = rdir / f"{stem}_report.html"
-    html_path.write_text(_html(config, qa, manifest, steps, figs, audit, t, lang))
+    html_path.write_text(
+        _html(config, qa, manifest, steps, figs, audit, t, lang, notes=notes, title=title)
+    )
     return {
         "html": str(html_path),
         "process": str(md_path),
@@ -663,7 +925,15 @@ def build_report(config, out_dir: str | Path | None = None, lang: str = "fi") ->
     }
 
 
-def _html(config, qa, manifest, steps, figs, audit, t, lang) -> str:
+def _figure(figs, key, t, n) -> str:
+    cap = t["captions"].get(key, "")
+    return (
+        f"<figure>{_img(figs[key])}<figcaption><b>{html.escape(t['figure'])} {n}.</b> "
+        f"{html.escape(cap)}</figcaption></figure>"
+    )
+
+
+def _html(config, qa, manifest, steps, figs, audit, t, lang, notes=None, title=None) -> str:
     e = html.escape
     area = (qa.get("field_edge") or {}).get("boundary_area_ha")
     mc = qa.get("mass_conservation", {})
@@ -683,15 +953,25 @@ def _html(config, qa, manifest, steps, figs, audit, t, lang) -> str:
         "<meta name='viewport' content='width=device-width,initial-scale=1'>",
         f"<title>{e(t['title'])} – {e(str(config.field_id))} {config.year}</title>",
         f"<style>{CSS}</style></head><body><main>",
-        f"<p class='muted'>{SOFTWARE}</p><h1>{e(t['title'])}: {e(str(config.field_id))} / "
-        f"{config.year}</h1>",
+        f"<p class='muted'>{SOFTWARE} · <span class='badge'>{e(t['prototype'])}</span></p>",
+        f"<h1>{e(title or t['title'])}</h1>",
+        f"<p class='muted'>{e(t['field'])} {e(str(config.field_id))} · {e(t['year'])} "
+        f"{config.year}</p>",
         f"<h2>{e(t['summary'])}</h2><div class='kpis'>",
         "".join(f"<div class='kpi'><span>{e(k)}</span><b>{v}</b></div>" for k, v in kpis),
         "</div>",
     ]
-    notes = (manifest.get("result") or {}).get("notes") or []
+    run_notes = (manifest.get("result") or {}).get("notes") or []
+    if run_notes:
+        parts.append("<ul>" + "".join(f"<li>{e(n)}</li>" for n in run_notes) + "</ul>")
     if notes:
-        parts.append("<ul>" + "".join(f"<li>{e(n)}</li>" for n in notes) + "</ul>")
+        parts.append(f"<h2>{e(t['findings'])}</h2><div class='notes'>{_notes_html(notes)}</div>")
+    n = 1
+    parts.append(f"<h2>{e(t['overview'])}</h2>")
+    for key in ("pipeline", "summary"):
+        if key in figs:
+            parts.append(_figure(figs, key, t, n))
+            n += 1
     parts.append(f"<h2>{e(t['process'])}</h2>")
     for s in steps:
         parts.append(f"<section class='level'><h3>{e(s['level'])} – {e(s['title'])}</h3><dl>")
@@ -702,11 +982,14 @@ def _html(config, qa, manifest, steps, figs, audit, t, lang) -> str:
         parts.append(f"<dt>{e(t['result'])}</dt><dd>{e(str(s['result']))}</dd>")
         parts.append(f"<dt>{e(t['outputs'])}</dt><dd>{e(str(s['outputs']))}</dd></dl>")
         if s["level"] in figs:
-            parts.append(_img(figs[s["level"]]))
+            parts.append(_figure(figs, s["level"], t, n))
+            n += 1
         parts.append("</section>")
     for lvl in ("L5", "Q4"):
         if lvl in figs:
-            parts.append(f"<section class='level'><h3>{lvl}</h3>{_img(figs[lvl])}</section>")
+            parts.append(f"<section class='level'><h3>{lvl}</h3>{_figure(figs, lvl, t, n)}")
+            parts.append("</section>")
+            n += 1
 
     parts.append(f"<h2>{e(t['audit'])}</h2>")
     v = audit["verification"]

@@ -170,8 +170,12 @@ In `output_dir`:
 figure per level (L1A records, L1B signals, L2 yield per record, L3 flags, L4
 grid and quality bands; L5 and Q4 when run), the process description of each
 level with this run's parameters (`*_process.md`), the audit (`*_audit.json`,
-with a fresh re-hash) and one self-contained HTML report. Needs
-`pip install yieldsuite[report]`.
+with a fresh re-hash) and one self-contained HTML report with a pipeline
+diagram, summary charts (yield distribution, record flow, mass balance) and a
+caption for every figure. `--notes findings.txt` puts the analyst's findings
+first ('## ' headings, '- ' bullets, `**bold**`), `--title` names the report,
+and `--redact` shows file names instead of paths so the report can be shared.
+Needs `pip install yieldsuite[report]`.
 
 ## Not yet
 

@@ -469,6 +469,9 @@ def build_parser() -> argparse.ArgumentParser:
     rp.add_argument("config")
     rp.add_argument("--out", help="folder (default: <output_dir>/report)")
     rp.add_argument("--lang", default="fi", choices=["fi", "en"])
+    rp.add_argument("--notes", help="text file with the analyst's findings (shown first)")
+    rp.add_argument("--title", help="report title")
+    rp.add_argument("--redact", action="store_true", help="file names instead of paths (to share)")
     rp.set_defaults(func=_cmd_report)
 
     vf = sub.add_parser("verify", help="check a run manifest against the files (SHA-256)")
@@ -708,7 +711,10 @@ def _cmd_report(args) -> int:
 
     cfg = load_config(args.config)
     try:
-        files = build_report(cfg, args.out, lang=args.lang)
+        notes = Path(args.notes).read_text(encoding="utf-8") if args.notes else None
+        files = build_report(
+            cfg, args.out, lang=args.lang, notes=notes, title=args.title, redact=args.redact
+        )
     except (FileNotFoundError, ValueError, ImportError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1

@@ -62,7 +62,7 @@ def test_report_has_every_level_figure_process_and_audit(ran, tmp_path, lang):
     html = (out / f"{stem}_report.html").read_text()
     for level in ("L0", "L1A", "L1B", "L2", "L3", "L4"):
         assert f"<h3>{level} " in html
-    assert html.count("data:image/png;base64,") == 5  # L1A, L1B, L2, L3, L4
+    assert html.count("data:image/png;base64,") == 7  # pipeline, summary, L1A-L4
     assert ("tavu tavulta samat" if lang == "fi" else "byte-identical") in html
     process = (out / f"{stem}_process.md").read_text()
     assert "## L3" in process and "k" in process
@@ -75,6 +75,8 @@ def test_report_has_every_level_figure_process_and_audit(ran, tmp_path, lang):
         "L2_yield_records.png",
         "L3_flags.png",
         "L4_grid.png",
+        "pipeline.png",
+        "summary.png",
     ]
 
 
@@ -82,3 +84,33 @@ def test_report_needs_a_run(tmp_path, capsys):
     cfg_path = synthetic.write_demo(tmp_path)
     assert main(["report", str(cfg_path)]) == 1
     assert "run the chain" in capsys.readouterr().err
+
+
+def test_report_notes_title_and_redaction(ran, tmp_path):
+    cfg, cfg_path, summary = ran
+    notes = tmp_path / "notes.txt"
+    notes.write_text("## Key point\n- level is **high**\n\nA paragraph.\n")
+    out = tmp_path / "shared"
+    rc = main(
+        [
+            "report",
+            str(cfg_path),
+            "--out",
+            str(out),
+            "--lang",
+            "en",
+            "--notes",
+            str(notes),
+            "--title",
+            "Prototype X",
+            "--redact",
+        ]
+    )
+    assert rc == 0
+    stem = f"{cfg.field_id}_{cfg.year}"
+    html = (out / f"{stem}_report.html").read_text()
+    assert "<h1>Prototype X</h1>" in html and "<b>high</b>" in html
+    assert "Figure 7." in html and "Prototype – results not yet validated" in html
+    assert str(tmp_path) not in html  # no absolute paths
+    audit = (out / f"{stem}_audit.json").read_text()
+    assert str(cfg_path.parent) not in audit
