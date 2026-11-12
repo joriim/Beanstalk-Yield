@@ -292,6 +292,30 @@ def _cmd_tickets(args) -> int:
     return 0
 
 
+def _cmd_harvest_check(args) -> int:
+    from .l5.run import harvest_check_from_outputs
+
+    cfg = load_config(args.config)
+    if args.days_after:
+        cfg.harvest_check.days_after = args.days_after
+    if args.no_planet:
+        cfg.harvest_check.planet_search = False
+    res = harvest_check_from_outputs(cfg)
+    c = res["check"]
+    print(f"[{c['severity']}] {c['finding']['fi' if args.lang == 'fi' else 'en']}")
+    for r in res["regions"]:
+        print(
+            f"  region {r['region']}: {r['area_ha']:.2f} ha, {r['pure_cells']} pure cells -> "
+            f"{r['verdict']}" + (f" (by {r['harvested_by']})" if r["harvested_by"] else "")
+        )
+    for p in res["pairs_used"]:
+        print(f"  {p['family']} {p['before']} -> {p['after']}: separation {p['separation']:.1f}")
+    for c in (res.get("planet") or {}).get("candidates", [])[:5]:
+        print(f"  PlanetScope {c['id']} {c['acquired'][:10]} field clear {c['parcel_clear_pct']}")
+    print(f"written: {res['file']}")
+    return 0
+
+
 def _cmd_s2_search(args) -> int:
     from .l4.io import read_bands
     from .public.field import field_bbox_wgs84
@@ -579,6 +603,15 @@ def build_parser() -> argparse.ArgumentParser:
     tk.add_argument("--reason")
     tk.add_argument("--actor")
     tk.set_defaults(func=_cmd_tickets)
+
+    hv = sub.add_parser(
+        "harvest-check", help="was the unlogged area harvested? Sentinel-2/Landsat (+PlanetScope)"
+    )
+    hv.add_argument("config")
+    hv.add_argument("--days-after", type=int, help="days after the harvest to look (default 30)")
+    hv.add_argument("--no-planet", action="store_true", help="do not search PlanetScope")
+    hv.add_argument("--lang", choices=["fi", "en"], default="fi")
+    hv.set_defaults(func=_cmd_harvest_check)
 
     s2 = sub.add_parser("s2-search", help="list Sentinel-2 scenes over the field (STAC)")
     s2.add_argument("config")

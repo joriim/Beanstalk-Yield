@@ -104,6 +104,11 @@ TEXT = {
             "Oikealla tietueiden ero puinnin aikana; musta viiva on liukuva keskiarvo.",
             "season": "Kasvukausi kylvöstä puintiin: ilman ja maan lämpötila, kertyvät "
             "lämpösummat ja päivittäinen säteily; pystyviivat ovat käytetyt kuvapäivät.",
+            "harvest": "Jäikö puuttuva alue puimatta? NDTI ennen ja jälkeen puinnin (sänki "
+            "laskee NDTI:tä) ja puuttuvan alueen luokka: muutosta verrataan kirjatun, puidun "
+            "alan muutokseen. Magenta viiva rajaa alueen, jolla ei ole puintitietueita. "
+            "Luokitellaan vain solut, jotka ovat vähintään puolen pikselin päässä alueen "
+            "reunasta.",
         },
         "verify_ok": "Kaikki syötteet ja tuotteet ovat tavu tavulta samat kuin ajossa.",
         "verify_bad": "Tiedostoja on muuttunut ajon jälkeen:",
@@ -182,6 +187,10 @@ TEXT = {
             "harvest; the black line is a running mean.",
             "season": "Season from sowing to harvest: air and soil temperature, cumulative "
             "degree days and daily radiation; vertical lines are the image dates used.",
+            "harvest": "Was the unlogged area harvested? NDTI before and after the harvest "
+            "(stubble lowers NDTI) and the class of the unlogged area: its change is compared "
+            "with the change of the logged, harvested area. The magenta line outlines the "
+            "area without records. Only cells at least half a pixel inside it are classified.",
         },
         "verify_ok": "Every input and output is byte-identical to the run.",
         "verify_bad": "Files have changed since the run:",
@@ -1073,6 +1082,9 @@ def build_report(
         png = out / f"L5_{stem}_review.png"
         if png.exists():
             figs["review"] = Path(shutil.copy(png, fdir / "review.png"))
+        hpng = out / f"L5_{stem}_harvest_check.png"
+        if hpng.exists() and extras["review"].get("harvest_check"):
+            figs["harvest"] = Path(shutil.copy(hpng, fdir / "harvest_check.png"))
     lu = (card or {}).get("light_use")
     if lu:
         extras["light_use"] = lu
@@ -1167,6 +1179,34 @@ def _review_html(rv: dict, figs: dict, lang: str, n: int) -> tuple[str, int]:
     if "review" in figs:
         out += _figure(figs, "review", TEXT[lang], n)
         n += 1
+    hc = rv.get("harvest_check")
+    if hc:
+        verdict = {
+            "harvested": "puitu" if fi else "harvested",
+            "harvested_before": "puitu ennen" if fi else "harvested before",
+            "not_harvested": "puimaton" if fi else "not harvested",
+            "unclear": "epäselvä" if fi else "unclear",
+            "too_narrow": "liian kapea" if fi else "too narrow",
+        }
+        rows = [
+            [str(r["region"]), f"{r['area_ha']:.2f}", str(r["pure_cells"]),
+             e(verdict.get(r["verdict"], r["verdict"])), e(r.get("harvested_by") or "–")]
+            for r in hc.get("regions", [])
+        ]
+        if rows:
+            out += _table(
+                ["Alue", "ha", "Luokiteltuja soluja", "Tulos", "Puitu viimeistään"]
+                if fi else ["Area", "ha", "Classified cells", "Verdict", "Harvested by"],
+                rows,
+            )
+        pairs = ", ".join(f"{p['family']} {p['before']} → {p['after']}"
+                          for p in hc.get("pairs_used", []))
+        if pairs:
+            out += f"<p>{'Kuvaparit' if fi else 'Image pairs'}: {e(pairs)}. " + e(
+                " ".join(hc.get("licences", []))) + "</p>"
+        if "harvest" in figs:
+            out += _figure(figs, "harvest", TEXT[lang], n)
+            n += 1
     return out, n
 
 

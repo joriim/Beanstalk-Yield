@@ -12,6 +12,7 @@ from .levels import ProductClass, classify_product
 from .registry import MachineProfile
 
 if TYPE_CHECKING:
+    from .l5.harvest_check import Settings as HarvestCheckSettings
     from .l5.lightuse import LightUseSettings
 
 DEFAULT_SLACK_CHANNEL = "#yield-data-suite"
@@ -171,6 +172,7 @@ class FieldYearConfig:
     parcel_ids: list[str] = field(default_factory=list)  # parcel numbers of this field
     source_path: Path | None = None  # the YAML file this config was read from (audit)
     light_use: LightUseSettings = field(default_factory=lambda: _light_use_default())
+    harvest_check: HarvestCheckSettings = field(default_factory=lambda: _harvest_check(None))
 
     @property
     def sentinel2(self) -> ImagerySource | None:
@@ -277,6 +279,7 @@ def load_config(path: str | Path) -> FieldYearConfig:
         parcel_ids=[str(v) for v in raw.get("parcel_ids") or []],
         source_path=path.resolve(),
         light_use=_light_use(raw.get("light_use")),
+        harvest_check=_harvest_check((raw.get("review") or {}).get("harvest_check")),
     )
 
 
@@ -309,3 +312,20 @@ def _light_use(raw: dict | None):
     if not raw:
         return LightUseSettings()
     return LightUseSettings(**{"enabled": True, **raw})
+
+
+def _harvest_check(raw):
+    """``review: harvest_check:`` is auto (default), true, false or a mapping of settings."""
+    from .l5.harvest_check import Settings
+
+    if raw is None or raw == "auto":
+        return Settings()
+    if isinstance(raw, bool):
+        return Settings(enabled="true" if raw else "false")
+    raw = dict(raw)
+    if "enabled" in raw:
+        e = raw["enabled"]
+        raw["enabled"] = "auto" if e == "auto" else ("true" if e else "false")
+    if "families" in raw:
+        raw["families"] = tuple(raw["families"])
+    return Settings(**raw)

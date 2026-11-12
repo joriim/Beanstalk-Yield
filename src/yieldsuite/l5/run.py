@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 from ..config import FieldYearConfig
@@ -60,13 +61,19 @@ def run_sentinel2_fusion(
     parts = []
     if request is not None:
         features_path = Path(features_path) if features_path else out / f"{stem}_s2_features.csv"
-        if features_path.exists():
-            s2 = load_features(features_path)
-        else:
-            s2 = fetch_features(
-                grid, config.crs, request, connection=connection, workdir=out, batch=batch
-            )
-            save_features(s2, features_path)
+        s2 = _cached_features(features_path, grid, config.crs)
+        if s2 is None:
+            try:
+                s2 = fetch_features(
+                    grid, config.crs, request, connection=connection, workdir=out, batch=batch
+                )
+            except Exception:
+                s2 = _remap_stale_features(features_path, grid)
+                if s2 is None:
+                    raise
+            else:
+                save_features(s2, features_path)
+                _grid_sidecar(features_path).write_text(json.dumps(_grid_signature(grid)))
         parts.append(s2.assign(source="sentinel2"))
     local_reports = []
     for img in config.imagery:
@@ -432,5 +439,197 @@ def run_review(config, grid, l4, result, records, field_mask, lightuse_raster, o
     except ImportError:
         pass
     res["file"] = str(path)
+    unl = next((c for c in res["checks"] if c["id"] == "unlogged"), None)
+    hc = config.harvest_check
+    if hc.enabled == "true" or (
+        hc.enabled == "auto" and unl is not None and unl["severity"] != "ok"
+    ):
+        try:
+            res["harvest_check"] = run_harvest_check(
+                config, grid, l4, records, field_mask, out, stem, boundary
+            )
+            c = res["harvest_check"].pop("_check")
+            res["checks"].append(c)
+            order = {"alert": 0, "watch": 1, "ok": 2}
+            res["checks"].sort(key=lambda c: order[c["severity"]])
+            res["summary"] = {s: sum(c["severity"] == s for c in res["checks"]) for s in order}
+        except Exception as exc:  # noqa: BLE001 - network or data problem: noted, not fatal
+            res["harvest_check_error"] = str(exc)
     path.write_text(json.dumps(res, indent=2, ensure_ascii=False, default=str))
     return {"file": str(path), "summary": res["summary"], "reference": ref}
+
+
+def _grid_signature(grid: Grid) -> dict:
+    return {"xmin": grid.xmin, "ymax": grid.ymax, "resolution": grid.resolution,
+            "nx": grid.nx, "ny": grid.ny}
+
+
+def _grid_sidecar(features_path: Path) -> Path:
+    return features_path.with_suffix(".grid.json")
+
+
+def _cached_features(features_path: Path, grid: Grid, crs: str):
+    """Cached features if they belong to this grid. Cell ids are grid positions, so a
+    cache from another grid (e.g. before the grid was extended to the boundary) is
+    set aside as ``*.stale.csv`` and None is returned."""
+    if not features_path.exists():
+        return None
+    side = _grid_sidecar(features_path)
+    if side.exists() and json.loads(side.read_text()) == _grid_signature(grid):
+        return load_features(features_path)
+    if not side.exists():
+        # legacy cache without a grid record (written before grids were recorded):
+        # kept as before when its cell ids fit the grid; delete it after a grid change
+        df = load_features(features_path)
+        if int(df["cell"].max()) < grid.nx * grid.ny:
+            side.write_text(json.dumps(_grid_signature(grid)))
+            return df
+    stale = features_path.with_suffix(".stale.csv")
+    features_path.replace(stale)
+    if side.exists():
+        side.replace(stale.with_suffix(".grid.json"))
+    return None
+
+
+def _remap_stale_features(features_path: Path, grid: Grid):
+    """When features cannot be fetched, move a stale cache onto the new grid (same
+    resolution, aligned): cells outside the old grid get no Sentinel-2 features."""
+    stale = features_path.with_suffix(".stale.csv")
+    side = stale.with_suffix(".grid.json")
+    if not stale.exists() or not side.exists():
+        return None
+    g = json.loads(side.read_text())
+    if g["resolution"] != grid.resolution:
+        return None
+    dc = round((g["xmin"] - grid.xmin) / grid.resolution)
+    dr = round((grid.ymax - g["ymax"]) / grid.resolution)
+    df = load_features(stale)
+    r, c = np.divmod(df["cell"].to_numpy(), g["nx"])
+    r, c = r + dr, c + dc
+    ok = (r >= 0) & (r < grid.ny) & (c >= 0) & (c < grid.nx)
+    return df[ok].assign(cell=(r * grid.nx + c)[ok])
+
+
+def harvest_window(records) -> tuple[date, date]:
+    t = pd.to_datetime(records["t"], unit="s", utc=True).dt.tz_convert("Europe/Helsinki")
+    return t.min().date(), t.max().date()
+
+
+def run_harvest_check(config, grid, l4, records, field_mask, out, stem, boundary=None) -> dict:
+    """Sentinel-2/Landsat look at the unlogged area (see l5.harvest_check); writes
+    ``<stem>_harvest_check.json`` and ``.png`` and returns the result with a review check."""
+    import numpy as np
+
+    from ..public import optical
+    from ..public.field import field_bbox_wgs84
+    from . import harvest_check as hc
+
+    s = config.harvest_check
+    start, end = harvest_window(records)
+    fm = np.asarray(field_mask, bool).reshape(grid.ny, grid.nx)
+    nrec = np.asarray(l4.get("n_records", np.isfinite(l4["yield"])), float).reshape(fm.shape)
+    cov = np.asarray(l4.get("coverage", nrec > 0), float).reshape(fm.shape)
+    logged = (nrec > 0) & (cov >= 0.5) & fm
+    unlogged = fm & ~(nrec > 0)
+    bbox = field_bbox_wgs84(config, grid)
+    log: list[str] = []
+    scenes = optical.fetch_scenes(
+        bbox,
+        grid,
+        config.crs,
+        start - timedelta(days=s.days_before),
+        end + timedelta(days=s.days_after),
+        families=s.families,
+        field_mask=fm,
+        log=log.append,
+    )
+    for img in config.imagery:
+        if img.kind == "planetscope" and img.path and img.date:
+            try:
+                scenes.append(
+                    optical.planetscope_scene(img.path, str(img.date), grid, config.crs, img.mask)
+                )
+            except Exception as exc:  # noqa: BLE001
+                log.append(f"{img.path}: {exc}")
+    res = hc.check(scenes, grid, fm, logged, unlogged, start, end, s)
+    planet = None
+    if res["planet_suggested"] and s.planet_suggest:
+        cands, err = None, None
+        if s.planet_search and config.boundary is not None:
+            try:
+                from shapely.geometry import mapping
+
+                from ..public.boundary import load_boundary
+
+                geom = load_boundary(config.boundary, "EPSG:4326")
+                cands = hc.search_planet(mapping(geom), end)
+            except Exception as exc:  # noqa: BLE001 - no key, quota or network
+                err = str(exc)[:120]
+        planet = hc.planet_suggestion(end, float(fm.sum() * grid.cell_area / 1e4), cands, err)
+        res["planet"] = planet
+    sev, fi, en = hc.finding(res, planet)
+    a = res["area_ha_by_verdict"]
+    value = 100 * a.get(hc.STANDING, 0) / res["unlogged_ha"] if res["unlogged_ha"] else 0.0
+    classes = res.pop("_classes")
+    res["log"] = log
+    res["licences"] = sorted({optical.LICENCE[sc.family] for sc in scenes})
+    try:
+        res["figure"] = str(
+            hc.figure({**res, "_classes": classes}, scenes, grid, boundary,
+                      out / f"{stem}_harvest_check.png", field_mask=fm, unlogged=unlogged)
+        )
+    except ImportError:
+        pass
+    path = out / f"{stem}_harvest_check.json"
+    path.write_text(json.dumps(res, indent=2, ensure_ascii=False, default=str))
+    res["file"] = str(path)
+    res["_check"] = {
+        "id": "harvest_status",
+        "value": float(value),
+        "unit": "% of unlogged area looks unharvested",
+        "thresholds": {"watch": None, "alert": None},
+        "severity": sev,
+        "finding": {"fi": fi, "en": en},
+        "file": str(path),
+    }
+    return res
+
+
+def harvest_check_from_outputs(config: FieldYearConfig) -> dict:
+    """Run the harvest check on existing L3/L4 outputs and merge it into the review JSON."""
+    import numpy as np
+
+    from ..l4.io import read_bands
+
+    out = Path(config.output_dir)
+    base = f"{config.field_id}_{config.year}"
+    l4, grid, _ = read_bands(out / f"L4_{base}.tif")
+    records = pd.read_parquet(out / f"L3_{base}_records.parquet", columns=["t"])
+    boundary = None
+    if config.boundary is not None and Path(config.boundary).exists():
+        from ..public.boundary import load_boundary
+        from .fuse import boundary_mask
+
+        geom = load_boundary(config.boundary, config.crs)
+        fm = boundary_mask(geom, grid)
+        try:
+            import geopandas as gpd
+
+            boundary = gpd.GeoSeries([geom], crs=config.crs)
+        except ImportError:
+            pass
+    else:
+        fm = np.isfinite(l4["yield"])
+    stem = f"L5_{base}"
+    res = run_harvest_check(config, grid, l4, records, fm, out, stem, boundary)
+    check = res.pop("_check")
+    rv_path = out / f"{stem}_review.json"
+    if rv_path.exists():
+        rv = json.loads(rv_path.read_text())
+        rv["checks"] = [c for c in rv["checks"] if c["id"] != "harvest_status"] + [check]
+        order = {"alert": 0, "watch": 1, "ok": 2}
+        rv["checks"].sort(key=lambda c: order[c["severity"]])
+        rv["summary"] = {k: sum(c["severity"] == k for c in rv["checks"]) for k in order}
+        rv["harvest_check"] = res
+        rv_path.write_text(json.dumps(rv, indent=2, ensure_ascii=False, default=str))
+    return {**res, "check": check}

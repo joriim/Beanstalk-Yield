@@ -96,6 +96,10 @@ Pre-alpha. Working end to end:
   (antenna offset, with the lateral offset estimated from the pass spacing) and
   `yieldsuite tickets add|import|list|remove`, logged in `inputs_log.jsonl`
   ([docs/harvester-chain.md](docs/harvester-chain.md)).
+- **Harvested or not?** When the review finds field area without records, L5
+  checks Sentinel-2 and Landsat around the harvest (stubble lowers NDTI) and
+  suggests a PlanetScope scene for strips too narrow for 20–30 m pixels
+  (`yieldsuite harvest-check`, [docs/l5-sentinel2.md](docs/l5-sentinel2.md)).
 - **QGIS plugin** ([qgis_plugin/README.md](qgis_plugin/README.md)): nine
   Processing algorithms (inspect, parcel boundary, machine profile / antenna
   offset, scale ticket, run chain, delay, fusion, zones, weather)

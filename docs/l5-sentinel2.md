@@ -125,6 +125,53 @@ spans zones 34–36: western Finland (e.g. Seinäjoki, tile 34VEQ) is
 field: `yieldsuite s2-search` prints the EPSG code of the field's tiles. With EPSG:3067 each cell is averaged from the
 pixels it overlaps, which smooths slightly.
 
+## Was the unlogged area harvested?
+
+When the critical review flags field area without harvest records (`unlogged`
+at watch or alert), L5 looks at free satellite images around the harvest
+(`l5/harvest_check.py`, images from `public/optical.py`):
+
+- **Sources**: Sentinel-2 L2A and Landsat 8/9 Collection 2 L2 from Microsoft
+  Planetary Computer (no account; hosts `planetarycomputer.microsoft.com`,
+  `sentinel2l2a01.blob.core.windows.net`, `landsateuwest.blob.core.windows.net`),
+  plus any PlanetScope scenes already in the config. Only the field window is
+  read; clouds, shadows and snow are masked (S2 SCL, Landsat QA_PIXEL).
+- **Signal**: harvest turns ripe crop into stubble, which lowers NDTI
+  (SWIR1 vs SWIR2) and usually NDVI. Per image family, the change between the
+  last clear scene before the first logged harvest day and each clear scene
+  after the last one is measured on the logged (harvested) area. A pair is used
+  only if that change stands out from the cell-to-cell spread (separation ≥ 2).
+- **Verdict per unlogged cell**: its own change projected on the harvested
+  area's change, ~1 = changed like the harvested area, ~0 = unchanged.
+  `harvested` (≥ 0.6, with the first date), `harvested_before` (already stubble
+  before the logged harvest), `not_harvested` (≤ 0.3 in every pair), `unclear`.
+  Regions are judged by the majority of their pure cells.
+- **Resolution**: only cells at least half a source pixel inside the unlogged
+  area and the field are classified (20 m SWIR, 30 m Landsat). Narrower strips,
+  typically the outermost header width along the edge, are `too_narrow`.
+- **PlanetScope**: when no usable pair exists or ≥ 30 % of the unlogged area is
+  too narrow or unclear, the review suggests a PlanetScope scene (3 m) after
+  the harvest. If a Planet key is available, the free search lists scenes with
+  the parcel's clear share and the quota they would use; ordering stays manual
+  (`yieldsuite planet order ... --confirm`, see the planet skill). Once the
+  scene is in the config (`imagery: - kind: planetscope`), the check uses it.
+
+The result is a review row `harvest_status`, `L5_<field>_<year>_harvest_check.json`
+and `.png`, and a table and figure in the report. To run it on existing
+outputs without redoing L5:
+
+```bash
+yieldsuite harvest-check field.yaml            # --days-after 40, --no-planet
+```
+
+Settings (optional): `review: {harvest_check: auto | true | false}` or a mapping
+with `days_before`, `days_after`, `families: [S2, LS]`, `planet_search`.
+
+The L4 grid covers the whole field boundary (not just the logged area), so
+edge strips without records count as unlogged. Cached Sentinel-2 features
+record their grid (`*_s2_features.grid.json`); after a grid change they are
+fetched again, or moved onto the new grid if fetching fails.
+
 ## Not yet included
 
 Zones, drone orthomosaic

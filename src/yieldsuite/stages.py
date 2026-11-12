@@ -360,9 +360,22 @@ def stage_grid(config: FieldYearConfig, state: dict) -> None:
     polys = state["polygons"]
     areas = rec["effective_area"].to_numpy()
     use = areas > 0
-    grid = Grid.from_bounds(
-        shapely.total_bounds(polys[use]), config.grid_resolution_m, config.grid_origin
-    )
+    bounds = shapely.total_bounds(polys[use])
+    # cover the whole field, so that field area without records counts as unlogged
+    if config.boundary is not None and Path(config.boundary).exists():
+        try:
+            from .public.boundary import load_boundary
+
+            fb = load_boundary(config.boundary, config.crs).bounds
+            bounds = (
+                min(bounds[0], fb[0]),
+                min(bounds[1], fb[1]),
+                max(bounds[2], fb[2]),
+                max(bounds[3], fb[3]),
+            )
+        except ImportError:
+            pass
+    grid = Grid.from_bounds(bounds, config.grid_resolution_m, config.grid_origin)
     flags = rec["flags"].to_numpy()
     mass = rec["mass_kg_reconciled"].to_numpy()
     bands = apportion_mass(
