@@ -105,6 +105,14 @@ def run_sentinel2_fusion(
         from .fuse import boundary_mask
 
         field_mask = boundary_mask(load_boundary(config.boundary, config.crs), grid)
+    vendor = {
+        img.kind
+        for img in config.imagery
+        if img.kind == "planetscope"
+        and (
+            img.harmonised if img.harmonised is not None else "harmonized" in str(img.path).lower()
+        )
+    }
     result = fuse(
         l4,
         grid,
@@ -114,6 +122,7 @@ def run_sentinel2_fusion(
         min_valid_share=min_valid_share,
         request=request,
         field_mask=field_mask,
+        vendor_harmonised=vendor,
     )
     result.model_card.update(
         field_id=config.field_id,
@@ -198,8 +207,19 @@ def _record_corrections(l4, grid, features, records, polygons, method, min_valid
 
     # Image prediction f(V) as the spatial reference: fitted on the L4 grid,
     # without kriging (the residual field would carry the stripes back in).
+    vendor = (
+        {"planetscope"}
+        if "source" in features and (features["source"] == "planetscope").any()
+        else set()
+    )
     prelim = fuse(
-        l4, grid, features, method=method, residual="none", min_valid_share=min_valid_share
+        l4,
+        grid,
+        features,
+        method=method,
+        residual="none",
+        min_valid_share=min_valid_share,
+        vendor_harmonised=vendor,
     )
     reference = prelim.bands["prediction"]
     view = RecordView.from_records(records)

@@ -90,3 +90,25 @@ licence note. Only the API key is needed: Basic auth for the Data API, the
 `api-key` header for the Orders API (`PL_API_KEY`, or a network secret in a cloud
 session, which carries one of the two). The repository skill
 `.claude/skills/planet` walks through credentials, quota, timing and use at L5.
+
+## Final image and the provider's harmonisation
+
+Besides the season mean and max of each index, the model gets a **final-image**
+feature `<index>_last`: each cell's latest clear value before harvest (from the
+last image; where that one is cloudy or does not cover the cell, the cell's
+previous clear value). It captures uneven ripening, lodging and late green
+patches that a season mean hides. It is kept only when it lowers the spatial-CV
+error; the model card's `feature_set` gives both errors and the choice, and the
+report shows it under L5 ("final image").
+
+Season features come from the reference source's dates (Sentinel-2); a raster
+clipped to the field (PlanetScope, drone) feeds the final image and, where it
+shares a date with Sentinel-2, that date's value. Date validity is checked per
+source against the cells that source covers, so a clipped raster is not
+dropped for covering only the field.
+
+PlanetScope ordered with Planet's `harmonize` tool (file names contain
+`harmonized`, or `harmonised: true` in the imagery entry) gets its own fit to
+Sentinel-2 when at least 30 cells were observed by both within two days;
+otherwise it is used as Planet delivered it, and the report says so
+("Planet's own harmonisation to Sentinel-2").

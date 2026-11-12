@@ -27,7 +27,12 @@ def harmonize(
     max_days: int = 2,
     min_pairs: int = 30,
     min_r2: float = 0.5,
+    vendor_harmonised: set[str] | frozenset = frozenset(),
 ) -> tuple[pd.DataFrame, dict]:
+    """``vendor_harmonised``: sources the provider already harmonised to the
+    reference (e.g. Planet's ``harmonize`` tool to Sentinel-2). They get their own
+    fit when enough co-located pairs exist; otherwise they are used as delivered,
+    and the report says so."""
     df = ensure_source(features).copy()
     df["day"] = pd.to_datetime(df["date"]).dt.normalize()
     sources = sorted(df["source"].unique())
@@ -54,11 +59,22 @@ def harmonize(
             pairs["gap"] = (pairs["day"] - pairs["day_ref"]).abs()
             pairs = pairs.sort_values("gap").drop_duplicates(["cell", "date"])
             if len(pairs) < min_pairs:
-                rep["indices"][index] = {
-                    "used": False,
-                    "reason": f"{len(pairs)} co-located observations "
-                    f"within {max_days} days (< {min_pairs})",
-                }
+                if src in vendor_harmonised:
+                    rep["indices"][index] = {
+                        "used": True,
+                        "method": "vendor",
+                        "pairs": int(len(pairs)),
+                        "reason": f"provider's harmonisation to {reference} used as delivered: "
+                        f"{len(pairs)} co-located observations within {max_days} days "
+                        f"(< {min_pairs}) for an own fit",
+                    }
+                    kept.append(part)
+                else:
+                    rep["indices"][index] = {
+                        "used": False,
+                        "reason": f"{len(pairs)} co-located observations "
+                        f"within {max_days} days (< {min_pairs})",
+                    }
                 continue
             x, y = pairs["value"].to_numpy(), pairs["value_ref"].to_numpy()
             b, a = np.polyfit(x, y, 1)
@@ -69,6 +85,7 @@ def harmonize(
                 "offset": float(a),
                 "r2": r2,
                 "used": r2 >= min_r2,
+                "method": "own fit",
             }
             if r2 < min_r2:
                 info["reason"] = f"weak fit to {reference} (R² {r2:.2f} < {min_r2})"

@@ -12,7 +12,7 @@ from .. import __version__
 from ..l4.grid import Grid
 from .features import complete_rows, feature_matrix
 from .gapfill import SOURCE_FILLED, SOURCE_MEASURED, gap_fill
-from .harmonize import collapse, ensure_source, harmonize
+from .harmonize import ensure_source, harmonize
 from .model import fit_yield_image_model
 from .sentinel2 import S2Request
 
@@ -43,6 +43,7 @@ def fuse(
     per_date: bool | None = None,
     request: S2Request | None = None,
     field_mask: np.ndarray | None = None,
+    vendor_harmonised: set[str] | frozenset = frozenset(),
 ) -> FusionResult:
     """Fit Y = f(V) on reliable L4 cells and fill the rest.
 
@@ -64,9 +65,14 @@ def fuse(
     features_long = ensure_source(features_long)
     sources_report = None
     if features_long["source"].nunique() > 1:
-        features_long, sources_report = harmonize(features_long)
+        features_long, sources_report = harmonize(
+            features_long, vendor_harmonised=vendor_harmonised
+        )
     V, finfo = feature_matrix(
-        collapse(features_long), n, min_valid_share=min_valid_share, per_date=per_date
+        features_long[["cell", "date", "index", "value", "source"]],
+        n,
+        min_valid_share=min_valid_share,
+        per_date=per_date,
     )
     if not finfo.dates_used:
         raise ValueError("no image date passed the cloud filter; widen the window")
@@ -76,6 +82,27 @@ def fuse(
     model = fit_yield_image_model(
         y, V, reliable & has_features, rows=rows, cols=cols, method=method
     )
+    # The final-image features (<index>_last) are kept only when they lower the
+    # spatial-CV error; otherwise the season mean/max model is used.
+    feature_set = {"chosen": "season + final image", "cv_rmse": model.stats.get("cv_rmse")}
+    last_cols = [c for c in V.columns if c.endswith("_last")]
+    if last_cols:
+        Vb = V.drop(columns=last_cols)
+        base = fit_yield_image_model(
+            y, Vb, reliable & complete_rows(Vb), rows=rows, cols=cols, method=method
+        )
+        cv_last, cv_base = model.stats.get("cv_rmse"), base.stats.get("cv_rmse")
+        feature_set = {
+            "cv_rmse_season": cv_base,
+            "cv_rmse_season_and_final_image": cv_last,
+            "final_image_date": finfo.last_date,
+        }
+        if cv_last is None or (cv_base is not None and cv_base <= cv_last):
+            model, V = base, Vb
+            has_features = complete_rows(V)
+            feature_set["chosen"] = "season"
+        else:
+            feature_set["chosen"] = "season + final image"
     prediction = model.predict(V)
     ablation = _ablation(
         features_long,
@@ -139,7 +166,9 @@ def fuse(
             **(asdict(request) if request else {}),
             "dates_used": finfo.dates_used,
             "dates_dropped": finfo.dates_dropped,
+            "final_image_date": finfo.last_date,
         },
+        "feature_set": feature_set,
         "training": {
             "min_coverage": min_coverage,
             "max_flagged_share": max_flagged_share,
@@ -173,7 +202,10 @@ def _ablation(
         rest = features_long[features_long["source"] != src]
         try:
             V, info = feature_matrix(
-                collapse(rest), n, min_valid_share=min_valid_share, per_date=per_date
+                rest[["cell", "date", "index", "value", "source"]],
+                n,
+                min_valid_share=min_valid_share,
+                per_date=per_date,
             )
             if not info.dates_used:
                 raise ValueError("no dates")

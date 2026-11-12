@@ -72,6 +72,9 @@ class ImagerySource:
     scale: float | None = None  # reflectance = DN x scale
     mask: Path | None = None  # e.g. PlanetScope UDM2; band ``mask_clear_band`` > 0 = clear
     mask_clear_band: int = 1
+    # Provider already harmonised it to Sentinel-2 (Planet "harmonize" tool); None = from
+    # the file name ("harmonized"). Used as delivered when no Sentinel-2 date is near.
+    harmonised: bool | None = None
     # Sentinel-2 via openEO
     start: str | None = None  # ISO date; default <year>-04-15
     end: str | None = None  # ISO date, exclusive; default <year>-09-15

@@ -395,6 +395,58 @@ def process_steps(
     return steps
 
 
+def _final_txt(card: dict, fi: bool) -> str:
+    fs = card.get("feature_set") or {}
+    d = fs.get("final_image_date") or (card.get("sentinel2") or {}).get("final_image_date")
+    if not d:
+        return "–"
+    a, b = fs.get("cv_rmse_season"), fs.get("cv_rmse_season_and_final_image")
+    cv = f" (CV RMSE {a:.2f} → {b:.2f} t/ha)" if a is not None and b is not None else ""
+    used = fs.get("chosen") == "season + final image"
+    if fi:
+        return f"{d}: " + ("käytössä" if used else "ei parantanut ennustetta, ei käytössä") + cv
+    return f"{d}: " + ("used" if used else "did not improve the prediction, not used") + cv
+
+
+def _sources_txt(card: dict, fi: bool) -> str:
+    """Per source: own fit to Sentinel-2, the provider's harmonisation, or not used."""
+    names = {"planetscope": "PlanetScope", "drone": "drone" if not fi else "drooni"}
+    h = (card.get("sources") or {}).get("harmonisation") or {}
+    parts = ["Sentinel-2 (" + ("viite" if fi else "reference") + ")"]
+    for src, rep in (h.get("sources") or {}).items():
+        nm = names.get(src, src)
+        dates = [
+            x.get("date") for x in card.get("local_imagery", []) if x.get("source", src) == src
+        ]
+        when = f" {', '.join(str(d) for d in dates if d)}" if dates else ""
+        idx = []
+        for index, info in (rep.get("indices") or {}).items():
+            if not info.get("used"):
+                continue
+            if info.get("method") == "vendor":
+                idx.append(
+                    f"{index}: "
+                    + (
+                        "Planetin oma harmonisointi Sentinel-2:een (ei Sentinel-2-kuvaa "
+                        "2 vrk sisällä omaan sovitukseen)"
+                        if fi
+                        else "Planet's own harmonisation to Sentinel-2 (no Sentinel-2 date "
+                        "within 2 days for an own fit)"
+                    )
+                )
+            else:
+                idx.append(
+                    f"{index}: "
+                    + ("oma sovitus" if fi else "own fit")
+                    + f" (R² {info.get('r2', float('nan')):.2f}, {info.get('pairs')} "
+                    + ("paria)" if fi else "pairs)")
+                )
+        parts.append(
+            f"{nm}{when}: " + ("; ".join(idx) if idx else ("ei käytetty" if fi else "not used"))
+        )
+    return " · ".join(parts)
+
+
 def _l5_step(card: dict, fi: bool) -> dict:
     fit = card.get("fit", {})
     cells = card.get("cells", {})
@@ -443,6 +495,8 @@ def _l5_step(card: dict, fi: bool) -> dict:
             ("kuvapäivät" if fi else "image dates"): f"{len(dates)}: " + ", ".join(dates),
             ("hylätyt päivät" if fi else "dropped dates"): str(len(s2.get("dates_dropped", []))),
             ("malli" if fi else "model"): f"{card.get('method')} + {card.get('residual')}",
+            ("lähteet" if fi else "sources"): _sources_txt(card, fi),
+            ("loppukuva" if fi else "final image"): _final_txt(card, fi),
             ("ajokaistavaikutus" if fi else "pass effect"): stripe_txt,
             ("viivetarkistus" if fi else "delay check"): shift_txt,
         },

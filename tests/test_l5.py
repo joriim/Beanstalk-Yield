@@ -105,8 +105,15 @@ def test_feature_matrix_drops_cloudy_date():
     V, info = feature_matrix(long_df, truth.size)
     assert info.dates_dropped == ["2026-07-11"]
     assert len(info.dates_used) == 3
-    assert list(V.columns) == ["NDRE_mean", "NDRE_max", "NDVI_mean", "NDVI_max"]
-    assert V.notna().all().all()
+    assert list(V.columns) == [
+        "NDRE_mean",
+        "NDRE_max",
+        "NDRE_last",
+        "NDVI_mean",
+        "NDVI_max",
+        "NDVI_last",
+    ]
+    assert V.notna().all().all() and info.last_date == "2026-07-26"
 
 
 def test_linear_model_and_block_cv():
@@ -224,3 +231,37 @@ def test_gap_fill_stays_inside_the_field():
     hull = fuse(l4, GRID, long_df)  # no boundary: hull of the measured cells
     assert np.isnan(hull.bands["yield"].ravel()[outside]).all()
     assert hull.model_card["field_mask"]["from"] == "convex hull of measured cells"
+
+
+def test_final_image_and_per_source_validity_and_vendor_harmonisation():
+    """A PlanetScope image clipped to part of the grid, one day before harvest and
+    with no Sentinel-2 date near it: kept (validity per source), used as delivered
+    (vendor harmonisation) and visible as the ``_last`` feature."""
+    from yieldsuite.l5.harmonize import harmonize
+
+    _, long_df, truth, _ = synthetic_field()
+    s2 = long_df.assign(source="sentinel2")
+    cells = np.arange(0, truth.size, 2)  # covers half the grid
+    ps = pd.DataFrame(
+        {
+            "cell": cells,
+            "date": "2026-08-20",
+            "index": "NDVI",
+            "value": 0.3 + 0.001 * cells,
+            "source": "planetscope",
+        }
+    )
+    both = pd.concat([s2, ps], ignore_index=True)
+    h, rep = harmonize(both)
+    assert not rep["sources"]["planetscope"]["used"]  # no reference near, not vendor
+    h, rep = harmonize(both, vendor_harmonised={"planetscope"})
+    nd = rep["sources"]["planetscope"]["indices"]["NDVI"]
+    assert nd["used"] and nd["method"] == "vendor" and "as delivered" in nd["reason"]
+    V, info = feature_matrix(h, truth.size)
+    assert "2026-08-20" in info.dates_used  # half the grid, but all of its own cells
+    assert info.last_date == "2026-08-20"
+    last = V["NDVI_last"].to_numpy()
+    assert np.allclose(last[cells], 0.3 + 0.001 * cells)
+    odd = np.arange(1, truth.size, 2)  # not seen by PlanetScope: latest Sentinel-2 value
+    s2_last = s2[(s2["index"] == "NDVI") & (s2["date"] == "2026-07-26")].set_index("cell")["value"]
+    assert np.allclose(last[odd], s2_last.reindex(odd).to_numpy())
