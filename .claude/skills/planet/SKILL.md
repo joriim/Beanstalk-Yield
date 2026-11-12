@@ -1,6 +1,6 @@
 ---
 name: planet
-description: PlanetScope-kuvien haku, tilaus ja lataus Beanstalk Yield Suiteen (yieldsuite planet). Käytä, kun käyttäjä haluaa Planet-kuvia lohkolle (esim. puintia edeltävä päivä), kun Planet-avain tai -tunnus ei toimi (401), kun pitää arvioida kiintiötä tai tilauksen kestoa, tai kun ladatut kuvat lisätään satomallin L5-tasolle.
+description: PlanetScope-kuvien haku, tilaus ja lataus Beanstalk Yield Suiteen (yieldsuite planet) sekä SkySat-kustannusarvio. Käytä, kun käyttäjä haluaa Planet-kuvia lohkolle (esim. puintia edeltävä päivä), kun Planet-avain tai -tunnus ei toimi (401), kun pitää arvioida kiintiötä, tilauksen kestoa tai SkySat-kuvien hintaa, tai kun ladatut kuvat lisätään satomallin L5-tasolle.
 ---
 
 # PlanetScope Beanstalk Yield Suitessa
@@ -34,6 +34,10 @@ komento `yieldsuite planet`.
   (vastaavat 401 myös toimivalla api-key-tunnuksella).
 - Kahden 401:n jälkeen (minuutin odotus välissä) pyydä käyttäjää tarkistamaan avain omalla koneellaan
   yllä olevalla curlilla; älä jatka arvailua.
+- Opittua (12.11.2026): tunnistelomake ei hyväksy Basic-muotoa tyhjällä salasanalla ("Näitä tietoja ei
+  hyväksytty"). Jos sama 401 tulee sekä haussa että tilauksissa api-key-muodolla, vika on avaimen arvossa
+  (väärä kenttä tai eri tilin avain), ei muodossa: tarkista ympäristön verkkosalaisuuksista, että
+  `api.planet.com`:lle on vain yksi salaisuus, ja pyydä käyttäjää testaamaan avain paikallisesti.
 
 ## 2. Haku (ei kuluta kiintiötä)
 
@@ -82,6 +86,19 @@ yieldsuite run field.yaml --to L5 && yieldsuite report field.yaml --redact
 Harmonisointi Sentinel-2:een ja lähdekohtainen sovitus näkyvät mallikortissa (`sources`, `ablation_cv_rmse`).
 Huom. lohkon reuna: 3 m pikselit sekoittavat vähemmän pientareita kuin 10–20 m Sentinel-2, mutta
 satokartan ja kuvan yhteys kannattaa silti arvioida myös ilman 20 m reunavyöhykettä (kriittinen arvio).
+
+## SkySat: kustannusarvio ennen tilausta
+
+- **Minimiala 25 km²** tilausta kohden; pienempi alue laskutetaan 25 km²:nä (Planet; Sentinel Hub, UP42 ja
+  SkyWatch samoin). Peltolohko (0,05–0,2 km²) maksaa siis käytännössä minimin.
+- **Indikatiivinen hinta** (SkyWatch, kesäkuu 2026): 50 cm arkisto noin 10 USD/km², ohjelmointi (tasking)
+  noin 12 USD/km² → arkisto noin 250 USD ja tasking noin 300 USD lohko-päivää kohden. Vanhempi Apollo Mapping
+  -tiedote mainitsee taskingille 15 000 USD:n minimitilauksen, joten pyydä aina tarjous.
+- **Menneille päiville vain arkisto**, ja SkySat-arkisto on harva (satelliitit ohjelmoidaan). Hae ensin
+  (`item_types: ["SkySatCollect"]`, ei kuluta kiintiötä); tilaa vain, jos lohko on selkeä.
+- Planet-tilauksen SkySat-kiintiö vähennetään samalla minimialalla.
+- Suositus: PlanetScope ensin (3 m, sisältyy kiintiöön); SkySat yhdelle koelohko-päivälle, jos haku löytää
+  selkeän kuvan.
 
 ## Vianetsintä
 
