@@ -107,7 +107,7 @@ INTERP_MAX_S = 600.0
 TRANSIENT_WINDOW = 61  # records in the running median of the transient check
 TRANSIENT_POINTS = 4.0  # a reading this far (moisture points) from it is a transient
 SPIKE_MIN = 50  # a single value logged at least this often ...
-SPIKE_RATIO = 5.0  # ... and this many times more often than the values next to it  # fill entered values from measured ones at most this far in time
+SPIKE_RATIO = 5.0  # ... and this many times more often than the values next to it
 
 SOURCE_CODES = {
     "logged": 0,
