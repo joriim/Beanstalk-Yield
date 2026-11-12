@@ -152,6 +152,29 @@ def stage_georeference(config: FieldYearConfig, state: dict) -> None:
             moisture = shift_signal(t, moisture, tau_m)
         delays[mid] = {"tau_d_s": tau_d, "tau_m_s": tau_m, **info}
 
+        corr = None
+        if config.quality is not None:
+            from .quality.moisture import apply as analyzer_moisture
+
+            corr = analyzer_moisture(
+                config, df, t, moisture, mass_wet, mid, state.setdefault("_quality_cache", {})
+            )
+        if corr is not None:
+            mc_before, mass_before = moisture, mass_wet
+            moisture, mass_wet, minfo = corr
+            if minfo.get("mode") in ("calibrate", "replace", "analyzer"):
+                d0, d1 = (
+                    np.nansum(
+                        np.where(
+                            np.isfinite(mc),
+                            to_reference_moisture(m, mc, config.reference_moisture_pct),
+                            m,
+                        )
+                    )
+                    for m, mc in ((mass_before, mc_before), (mass_wet, moisture))
+                )
+                minfo["mass_at_reference_change_pct"] = float(100 * (d1 / d0 - 1)) if d0 else None
+            state["qa"].setdefault("analyzer_moisture", {})[str(mid)] = minfo
         has_mc = np.isfinite(moisture)
         mass_ref = np.where(
             has_mc,

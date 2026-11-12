@@ -145,6 +145,7 @@ class QualityConfig:
     protein_basis: str = "dry"  # basis of the analyzer's protein %: dry | wet
     n_factor: float = 6.25  # protein -> nitrogen (wheat 5.7)
     lab_samples: Path | None = None  # CSV: protein_lab_pct + start/end or time
+    moisture: str = "auto"  # analyzer moisture into L2: auto | calibrate | replace | off
 
 
 @dataclass
@@ -297,7 +298,15 @@ def _quality(raw: dict | None, base: Path) -> QualityConfig | None:
         protein_basis=raw.get("protein_basis", "dry"),
         n_factor=float(raw.get("n_factor", 6.25)),
         lab_samples=_path(base, raw.get("lab_samples")),
+        moisture=_moisture_mode(raw.get("moisture", "auto")),
     )
+
+
+def _moisture_mode(v) -> str:
+    v = "off" if v is False else "auto" if v is True else str(v)
+    if v not in ("auto", "calibrate", "replace", "off"):
+        raise ValueError(f"quality.moisture must be auto, calibrate, replace or off, not {v!r}")
+    return v
 
 
 def _light_use_default():

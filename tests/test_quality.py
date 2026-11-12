@@ -181,3 +181,82 @@ def test_session_sheet_with_summary_block_above_the_table(tmp_path):
     assert "oil_pct" not in m and m["moisture_pct"].iloc[0] == 23.47
     assert m["t"].iloc[0] == pd.Timestamp("2026-08-22 08:53:20", tz="UTC").timestamp()
     assert any("header found on row" in w for w in r.report["warnings"])
+
+
+# --- analyzer moisture into the yield chain (L2) --------------------------------
+
+
+def test_moisture_calibration_modes():
+    from yieldsuite.quality.moisture import corrected_moisture
+
+    rng = np.random.default_rng(0)
+    sensor = 14 + rng.normal(0, 0.3, 500)
+    analyzer = np.where(np.arange(500) < 200, sensor + 2.0 + rng.normal(0, 0.2, 500), np.nan)
+    new, info = corrected_moisture(sensor, analyzer, "auto")
+    assert info["mode"] == "calibrate" and info["method"] == "offset"
+    assert np.median(new - sensor) == pytest.approx(2.0, abs=0.05)
+    new, info = corrected_moisture(sensor, analyzer, "replace")
+    np.testing.assert_allclose(new[:200], analyzer[:200])
+    assert corrected_moisture(sensor, analyzer, "off")[0] is None
+    few = np.where(np.arange(500) < 10, analyzer, np.nan)
+    assert corrected_moisture(sensor, few)[0] is None
+    new, info = corrected_moisture(np.full(500, np.nan), analyzer)
+    assert info["mode"] == "analyzer" and np.isfinite(new).all()
+    # varying combine moisture: linear fit
+    s2 = np.linspace(12, 20, 300)
+    new, info = corrected_moisture(s2, 1.0 + 0.9 * s2, "calibrate")
+    assert info["method"] == "linear" and info["slope"] == pytest.approx(0.9, abs=0.01)
+
+
+def test_failed_scans_dropped():
+    from yieldsuite.quality.moisture import clean_readings
+
+    q = pd.DataFrame({"t": [1, 2, 3, 4], "protein_pct": [13, 13, 30, 13],
+                      "moisture_pct": [15, 5, 15, 16], "carbohydrate_pct": [80, 80, 80, 0]})
+    out, info = clean_readings(q)
+    assert out["t"].tolist() == [1] and info["dropped"] == 3
+
+
+def test_vendor_dry_yield_rewetted_with_corrected_moisture():
+    from types import SimpleNamespace
+
+    from yieldsuite.l1.moisture import to_reference_moisture
+    from yieldsuite.quality import moisture as qm
+
+    n = 100
+    t = np.arange(n, dtype=float) * 2 + 1.7e9
+    df = pd.DataFrame({"moisture_sensor": np.full(n, 12.0), "vendor_dry_moisture": 14.0})
+    cfg = SimpleNamespace(
+        quality=SimpleNamespace(moisture="auto", sources=[SimpleNamespace(
+            path="x", machine_id="m", format="auto", columns={}, sheet=None, delay_s=0.0,
+            max_gap_s=1.0)]),
+        machines={},
+    )
+    q = pd.DataFrame({"t": t, "protein_pct": 13.0, "moisture_pct": 15.0})
+    cache = {"x": (SimpleNamespace(report={"median_interval_s": 2.0}), q, {"readings": n})}
+    dry = np.full(n, 1.0)  # kg/s at the vendor's 14 %, from a combine reading 12 %
+    mc, mass, info = qm.apply(cfg, df, t, np.full(n, 14.0), dry, "m", cache)
+    assert info["vendor_dry_rewetted"] == n and np.allclose(mc, 15.0)
+    # wet mass = 1 x 86 / 88; at 14 % with the true 15 %: x 85 / 86 -> 85 / 88
+    assert to_reference_moisture(mass, mc, 14.0)[0] == pytest.approx(85 / 88)
+
+
+def test_chain_uses_analyzer_moisture(tmp_path):
+    cfg_path = synthetic.write_demo(tmp_path)
+    export, _ = synthetic.quality_export(synthetic.make_field(0))
+    export["Moisture (%)"] = export["Moisture (%)"] + 2.0  # combine reads 2 points dry
+    export.to_csv(tmp_path / "gs.csv", index=False)
+    raw = yaml.safe_load(cfg_path.read_text())
+    raw["quality"] = {"sources": [{"path": "gs.csv", "machine_id": "combine-a"}]}
+    del raw["scale_tickets"]
+    cfg_path.write_text(yaml.safe_dump(raw))
+    s = run(load_config(cfg_path), Level.L4)
+    assert s.ok, s.error
+    qa = json.loads(open(s.outputs["qa"]).read())
+    m = qa["analyzer_moisture"]["combine-a"]
+    assert m["mode"] == "calibrate" and m["median_offset_pct"] == pytest.approx(2.0, abs=0.2)
+    assert m["mass_at_reference_change_pct"] == pytest.approx(-2.3, abs=0.3)
+    raw["quality"]["moisture"] = "off"
+    cfg_path.write_text(yaml.safe_dump(raw))
+    s = run(load_config(cfg_path), Level.L4)
+    assert "analyzer_moisture" not in json.loads(open(s.outputs["qa"]).read())

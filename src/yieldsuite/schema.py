@@ -48,6 +48,8 @@ RECORD_COLUMNS: dict[str, str] = {
     "force": "impact-plate force [N] (true L0 only)",
     "elevator_speed": "elevator shaft speed [rad/s] (true L0 only)",
     "moisture": "grain moisture [% wet basis]",
+    "moisture_sensor": "moisture as logged by the combine [% wet basis]",
+    "vendor_dry_moisture": "vendor reference moisture of a dry/standard yield, else NaN [%]",
     "mass_flow_wet": "wet mass flow [kg/s]",
     "mass_flow_ref": "mass flow at reference moisture [kg/s]",
     "applied_delay": "flow delay applied [s]",

@@ -31,6 +31,8 @@ OUTPUT_COLUMNS = [
     "y",
     "mass_flow_wet",
     "moisture",
+    "moisture_sensor",
+    "vendor_dry_moisture",
     "swath",
     "speed",
     "heading",
@@ -307,6 +309,8 @@ def normalize(
         else:
             raise ValueError("no swath/width column; set default_swath_m (header width)")
     moisture = conv("moisture")
+    moisture_sensor = moisture.copy()  # as logged by the combine, before any override
+    vendor_dry = np.full(len(df), np.nan)  # vendor's reference moisture of dry yields
     speed = conv("speed", default_unit="km/h", reference=ref_speed)
     heading = conv("heading")
     distance = conv("distance", reference=ref_step)
@@ -327,6 +331,7 @@ def normalize(
         report.input_family = "dry_mass_flow"
         mass_flow = conv("dry_mass_flow")
         moisture = np.full(len(df), vendor_mc if vendor_mc is not None else np.nan)
+        vendor_dry[:] = np.nan if vendor_mc is None else vendor_mc
         report.derived.append("dry mass flow: already at the vendor's reference moisture")
         entry = "L1B"
     else:
@@ -344,6 +349,7 @@ def normalize(
         report.derived.append("mass rebuilt as yield x distance x swath")
         if ycol != "yield_wet":
             moisture = np.full(len(df), vendor_mc if vendor_mc is not None else np.nan)
+            vendor_dry[:] = np.nan if vendor_mc is None else vendor_mc
             report.derived.append(
                 "dry/standard yield: moisture set to the vendor reference "
                 + (f"({vendor_mc} %)" if vendor_mc is not None else "(unknown: taken as is)")
@@ -392,6 +398,8 @@ def normalize(
             "y": y,
             "mass_flow_wet": mass_flow,
             "moisture": moisture,
+            "moisture_sensor": moisture_sensor,
+            "vendor_dry_moisture": vendor_dry,
             "swath": swath,
             "speed": speed,
             "heading": heading,

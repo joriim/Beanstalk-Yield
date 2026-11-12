@@ -60,6 +60,38 @@ Outputs: `Q4_<field>_<year>.tif` (bands `protein_pct_dm`, `protein_kg_ha`,
 Synthetic check (analyzer bias +0.5 %-points, 5 s interval, 12 s delay): lab
 bias estimated −0.51, protein map RMSE 0.06 %-points against the truth.
 
+## Analyzer moisture in the yield map
+
+If the analyzer export has a moisture column (GrainSense: `Kosteus [%]` /
+`Moisture`), it corrects the combine's moisture before the mass is
+standardised to the reference moisture (L2), so the correction reaches the
+reconciliation, the grid and L5. One point of moisture bias is about 1.2 % of
+dry yield.
+
+```yaml
+quality:
+  moisture: auto        # auto | calibrate | replace | off
+```
+
+- `auto` (default) = `calibrate` when at least 30 analyzer readings match
+  records that carry combine moisture; the analyzer values directly when the
+  combine logged no moisture; otherwise nothing changes.
+- `calibrate`: analyzer = a + b × combine, fitted on the matched records
+  (Theil–Sen; a median offset when the combine moisture varies by less than
+  1 point or the slope is implausible) and applied to every record, also
+  where the analyzer session did not run.
+- `replace`: the analyzer reading where one matches, the calibrated combine
+  value elsewhere.
+
+Failed scans are dropped first (moisture outside 8–40 %, protein outside
+6–25 %, carbohydrate 0 %). Dry or standard-moisture vendor yields (yield-point
+exports) are first turned back into wet mass with the combine moisture the
+vendor used, `wet = dry × (100 − vendor_ref) / (100 − combine)`, then
+standardised with the corrected moisture. The fit, the number of matched
+readings and the change of the mass at reference moisture are in the L4 QA
+(`analyzer_moisture`). The analyzer's own moisture is not lab-checked by the
+suite; a lab moisture sample makes the correction traceable.
+
 ## Real exports (November 2026)
 
 A GrainSense app session export (XLSX) has a `Summary` sheet and one sheet per
