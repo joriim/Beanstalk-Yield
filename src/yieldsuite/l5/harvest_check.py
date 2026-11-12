@@ -223,10 +223,13 @@ def check(
             verdict = UNCLEAR
         firsts = sorted({str(x) for x in best_first[reg] if x})
         rr, cc = np.nonzero(reg)
+        judged = float(n_pure * ha) if verdict != "too_narrow" else 0.0
         region_rows.append(
             {
                 "region": i,
                 "area_ha": round(float(reg.sum() * ha), 3),
+                "judged_ha": round(judged, 3),  # pure cells: the verdict covers these
+                "too_narrow_ha": round(float(reg.sum() * ha) - judged, 3),
                 "pure_cells": n_pure,
                 "counts": counts,
                 "verdict": verdict,
@@ -239,7 +242,11 @@ def check(
         )
     area = {v: 0.0 for v in (HARVESTED, BEFORE, STANDING, UNCLEAR, "too_narrow")}
     for r in region_rows:
-        area[r["verdict"]] += r["area_ha"]
+        if r["verdict"] != "too_narrow":
+            area[r["verdict"]] += r["judged_ha"]
+        area["too_narrow"] += r["too_narrow_ha"]
+    small = float(unl.sum() * ha) - sum(r["area_ha"] for r in region_rows)
+    area["too_narrow"] += max(small, 0.0)  # single unlogged cells
     total = float(unl.sum() * ha)
     need_planet = bool(
         total > 0

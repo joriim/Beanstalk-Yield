@@ -1244,14 +1244,18 @@ def _review_html(rv: dict, figs: dict, lang: str, n: int) -> tuple[str, int]:
             "too_narrow": "liian kapea" if fi else "too narrow",
         }
         rows = [
-            [str(r["region"]), f"{r['area_ha']:.2f}", str(r["pure_cells"]),
+            [str(r["region"]),
+             f"{r['area_ha']:.2f}" + (f" ({r['judged_ha']:.2f})" if r.get("judged_ha") else ""),
+             str(r["pure_cells"]),
              e(verdict.get(r["verdict"], r["verdict"])), e(r.get("harvested_by") or "–")]
             for r in hc.get("regions", [])
         ]
         if rows:
             out += _table(
-                ["Alue", "ha", "Luokiteltuja soluja", "Tulos", "Puitu viimeistään"]
-                if fi else ["Area", "ha", "Classified cells", "Verdict", "Harvested by"],
+                ["Alue", "ha (josta luokiteltu)", "Luokiteltuja soluja", "Tulos",
+                 "Puitu viimeistään"]
+                if fi else ["Area", "ha (classified)", "Classified cells", "Verdict",
+                            "Harvested by"],
                 rows,
             )
         pairs = ", ".join(f"{p['family']} {p['before']} → {p['after']}"
@@ -1516,6 +1520,7 @@ def _moisture_html(qa: dict, figs: dict, lang: str, n: int) -> tuple[str, int]:
     fi = lang == "fi"
     mm = qa.get("moisture_map") or {}
     rows = []
+    big = []
     for mid, m in (qa.get("moisture") or {}).items():
         c = m.get("combine_moisture") or {}
         if c.get("measured") is False and "entered_value_pct" in c:
@@ -1538,6 +1543,9 @@ def _moisture_html(qa: dict, figs: dict, lang: str, n: int) -> tuple[str, int]:
             cal = "–"
         dm = m.get("mass_at_reference_change_pct")
         rows.append([e(str(mid)), e(ent), e(cal), "–" if dm is None else f"{dm:+.1f} %"])
+        off = m.get("median_offset_pct")
+        if off is not None and abs(off) > 2:
+            big.append((mid, off))
     out = f"<h2>{'Jyvän kosteus' if fi else 'Grain moisture'}</h2>"
     if mm.get("field_mean_pct") is not None:
         lo, hi = mm["p10_p90_pct"]
@@ -1559,6 +1567,16 @@ def _moisture_html(qa: dict, figs: dict, lang: str, n: int) -> tuple[str, int]:
             else ["Machine", "Combine moisture", "Calibration", "Effect on dry yield"],
             rows,
         )
+    for mid, off in big:
+        out += "<p class='bad'>" + e(
+            f"{mid}: GrainSensen ja puimurin kosteus eroavat {off:+.1f} %-yks. Niin suuri ero "
+            "muuttaa kuivasatoa yli 2 %: varmista kumpi on oikeassa kuivurin vastaanoton tai "
+            "laboratorion kosteudella ennen kuin satotasoa käytetään."
+            if fi else
+            f"{mid}: analyzer and combine moisture differ by {off:+.1f} points. A difference "
+            "this large changes dry yield by more than 2 %: check which is right against dryer "
+            "intake or lab moisture before the yield level is used."
+        ) + "</p>"
     for key in ("moisture_time", "moisture"):
         if key in figs:
             out += _figure(figs, key, TEXT[lang], n)
