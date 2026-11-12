@@ -473,6 +473,18 @@ def build_parser() -> argparse.ArgumentParser:
     cv.add_argument("--out", help="folder (default: covariates/ next to the output folder)")
     cv.set_defaults(func=_cmd_covariate)
 
+    pl = sub.add_parser("planet", help="PlanetScope: search, order, status, download")
+    pl.add_argument("action", choices=["search", "order", "status", "wait", "download"])
+    pl.add_argument("config", nargs="?", help="field-year config (search, order)")
+    pl.add_argument("--day", help="acquisition day (default: day before the first harvest)")
+    pl.add_argument("--days-before", type=int, default=1)
+    pl.add_argument("--items", help="item ids to order, comma-separated")
+    pl.add_argument("--name", help="order name")
+    pl.add_argument("--confirm", action="store_true", help="place the order (uses quota)")
+    pl.add_argument("--order-id")
+    pl.add_argument("--out", help="download folder")
+    pl.set_defaults(func=_cmd_planet)
+
     rp = sub.add_parser("report", help="level-by-level report: figures, process, audit")
     rp.add_argument("config")
     rp.add_argument("--out", help="folder (default: <output_dir>/report)")
@@ -789,6 +801,90 @@ def _cmd_covariate(args) -> int:
     for n in layers.notes:
         print(f"  note        {n}")
     return 0
+
+
+def _field_geojson(cfg, buffer_m: float = 0.0) -> dict:
+    import json as _json
+
+    from .public.boundary import load_boundary
+
+    if cfg.boundary is None:
+        raise ValueError("the config needs a boundary (yieldsuite parcel <id>)")
+    geom = load_boundary(cfg.boundary, cfg.crs)
+    if buffer_m:
+        geom = geom.buffer(buffer_m)
+    import geopandas as gpd
+
+    return _json.loads(gpd.GeoSeries([geom], crs=cfg.crs).to_crs(4326).to_json())["features"][0][
+        "geometry"
+    ]
+
+
+def _cmd_planet(args) -> int:
+    import json as _json
+    from datetime import date as _date
+    from datetime import timedelta
+
+    from .public import planet
+
+    try:
+        if args.action in ("status", "wait", "download"):
+            if not args.order_id:
+                raise ValueError(f"planet {args.action} needs --order-id")
+            if args.action == "download":
+                files = planet.download(args.order_id, args.out or "planet")
+                print(f"{len(files)} files -> {args.out or 'planet'} ({planet.LICENCE})")
+                return 0
+            st = (
+                planet.wait(args.order_id)
+                if args.action == "wait"
+                else planet.status(args.order_id)
+            )
+            st.pop("_results", None)
+            print(_json.dumps(st, indent=2))
+            return 0
+        cfg = load_config(args.config)
+        if args.action == "search":
+            if args.day:
+                day = _date.fromisoformat(args.day)
+            else:
+                import pandas as pd
+
+                rec = Path(cfg.output_dir) / f"L3_{cfg.field_id}_{cfg.year}_records.parquet"
+                if not rec.exists():
+                    raise ValueError("give --day, or run the chain first (harvest date from L3)")
+                t = pd.read_parquet(rec, columns=["t", "header_down"])
+                t = t[t["header_down"]]["t"].min()
+                first = pd.to_datetime(t, unit="s", utc=True).tz_convert("Europe/Helsinki").date()
+                day = first - timedelta(days=args.days_before)
+                print(f"first harvest day {first}; searching {day}")
+            rows = planet.candidates(_field_geojson(cfg), day)
+            for r in rows:
+                print(
+                    f"  {r['id']}  {str(r['acquired'])[11:19]}  parcel clear "
+                    f"{r['parcel_clear_pct']}  scene {r['scene_clear_pct']}  {r['instrument']}  "
+                    f"{r['quality']}{'  SR' if r['has_sr'] else ''}"
+                )
+            if not rows:
+                print("no PlanetScope scene over the field on that day")
+            return 0
+        if args.action == "order":
+            if not args.items:
+                raise ValueError("planet order needs --items id1,id2")
+            if not args.confirm:
+                print("an order uses Planet quota (clipped area); add --confirm to place it")
+                return 1
+            oid = planet.order(
+                [i.strip() for i in args.items.split(",") if i.strip()],
+                _field_geojson(cfg, buffer_m=10.0),
+                args.name or f"{cfg.field_id} {cfg.year}",
+            )
+            print(f"order {oid} placed; follow with: yieldsuite planet wait --order-id {oid}")
+            return 0
+    except (planet.PlanetError, ValueError, FileNotFoundError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    return 1
 
 
 def _prog_name() -> str:

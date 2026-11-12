@@ -79,3 +79,14 @@ version. Credentials stay in the environment.
 
 Tested against a fake WebODM only; the live API has not been reached from
 the development environment.
+
+## Ordering PlanetScope from Planet
+
+`yieldsuite planet search | order | wait | download` (module
+`yieldsuite.public.planet`) searches the field on a day, ranks scenes by their
+clear share over the parcel, orders the chosen ones clipped to the field and
+harmonised to Sentinel-2 (`analytic_sr_udm2`), and downloads the GeoTIFFs with a
+licence note. Only the API key is needed: Basic auth for the Data API, the
+`api-key` header for the Orders API (`PL_API_KEY`, or a network secret in a cloud
+session, which carries one of the two). The repository skill
+`.claude/skills/planet` walks through credentials, quota, timing and use at L5.
