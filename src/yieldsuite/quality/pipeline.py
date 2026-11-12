@@ -54,6 +54,32 @@ def _match_quality(headers) -> dict[str, str]:
     return out
 
 
+def _find_table(df: pd.DataFrame, notes: list, max_rows: int = 15) -> pd.DataFrame:
+    """Measurement table below a summary block (e.g. a GrainSense app session sheet:
+    one session summary row, then the header 'Mittausaika, Proteiini [%] ...').
+
+    If the first row is already a header with time and protein, the frame is kept;
+    otherwise the first row (within ``max_rows``) that holds both becomes the header.
+    """
+
+    def has_header(cells) -> bool:
+        cols = [str(c) for c in cells]
+        t = match_columns(cols, {})
+        return "time" in t and "protein" in _match_quality([c for c in cols if c != t["time"]])
+
+    if has_header(df.columns):
+        return df
+    for i in range(min(max_rows, len(df))):
+        row = df.iloc[i].tolist()
+        if has_header(row):
+            out = df.iloc[i + 1 :].copy()
+            out.columns = [str(c).strip() for c in row]
+            out = out.loc[:, [c for c in out.columns if c and c != "nan"]]
+            notes.append(f"table header found on row {i + 2}; rows above it skipped")
+            return out.reset_index(drop=True)
+    return df
+
+
 def read_quality(path, fmt: str = "auto", columns: dict | None = None, sheet=None) -> QualityResult:
     """Q1: read an analyzer export (CSV/XLSX/...) into t + percentages.
 
@@ -61,6 +87,7 @@ def read_quality(path, fmt: str = "auto", columns: dict | None = None, sheet=Non
     (ISO text or epoch seconds) so it can be matched to the harvester log.
     """
     df, meta = read_any(Path(path), fmt, sheet=sheet)
+    df = _find_table(df, report_rows := [])
     explicit = dict(columns or {})
     # Only the time column comes from the generic recognition; the quality columns
     # (including moisture) are matched by the quality synonyms.
@@ -73,7 +100,7 @@ def read_quality(path, fmt: str = "auto", columns: dict | None = None, sheet=Non
         "format": meta.get("format"),
         "rows": len(df),
         "mapping": {"time": base.get("time"), **qm},
-        "warnings": [],
+        "warnings": list(report_rows),
     }
     if "time" not in base:
         raise ValueError(f"{path}: no time column found; map it with columns: {{time: ...}}")
@@ -93,6 +120,9 @@ def read_quality(path, fmt: str = "auto", columns: dict | None = None, sheet=Non
             v = pd.to_numeric(
                 df[qm[canon]].astype(str).str.replace(",", ".", regex=False), errors="coerce"
             ).to_numpy(float)
+            if not np.isfinite(v).any():
+                report["warnings"].append(f"{canon}: column {qm[canon]!r} has no values")
+                continue
             if np.nanmedian(v) <= 1.0:
                 v = v * 100.0
                 report["warnings"].append(f"{canon}: values look like fractions, x100")

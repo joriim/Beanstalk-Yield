@@ -156,3 +156,28 @@ def test_quality_time_must_overlap(tmp_path):
     s = run(load_config(cfg_path), Level.L4)
     assert s.ok
     assert any("no matched measurements" in n for n in s.notes)
+
+
+def test_session_sheet_with_summary_block_above_the_table(tmp_path):
+    """GrainSense app export: each session sheet starts with a summary row, the
+    measurement table (Finnish headers, UTC times) follows below it."""
+    pytest.importorskip("openpyxl")
+    from yieldsuite.quality.pipeline import read_quality
+
+    rows = [
+        ["Istunto aloitettu", "Kalibrointi", "Proteiinin keskiarvo [%]", "Nimi", None],
+        ["2026-08-22 08:53:07+0000", "Ohra", 15.1, "harjunpaa", None],
+        ["Mittausaika", "Proteiini [%]", "Kosteus [%]", "Öljy [%]", "Leveysaste"],
+        ["2026-08-22 08:53:20+0000", 13.48, 23.47, "-", 62.45],
+        ["2026-08-22 08:53:21+0000", 13.10, 22.90, "-", 62.45],
+        ["2026-08-22 08:53:22+0000", 14.02, 22.10, "-", 62.45],
+    ]
+    p = tmp_path / "session.xlsx"
+    with pd.ExcelWriter(p) as w:
+        pd.DataFrame(rows[1:], columns=rows[0]).to_excel(w, sheet_name="harjunpaa", index=False)
+    r = read_quality(p, sheet="harjunpaa")
+    m = r.measurements
+    assert len(m) == 3 and m["protein_pct"].tolist() == [13.48, 13.10, 14.02]
+    assert "oil_pct" not in m and m["moisture_pct"].iloc[0] == 23.47
+    assert m["t"].iloc[0] == pd.Timestamp("2026-08-22 08:53:20", tz="UTC").timestamp()
+    assert any("header found on row" in w for w in r.report["warnings"])

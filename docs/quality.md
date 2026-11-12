@@ -60,10 +60,22 @@ Outputs: `Q4_<field>_<year>.tif` (bands `protein_pct_dm`, `protein_kg_ha`,
 Synthetic check (analyzer bias +0.5 %-points, 5 s interval, 12 s delay): lab
 bias estimated −0.51, protein map RMSE 0.06 %-points against the truth.
 
+## Real exports (November 2026)
+
+A GrainSense app session export (XLSX) has a `Summary` sheet and one sheet per
+session. Each session sheet starts with a summary row; the measurement table
+follows below it with Finnish headers (`Mittausaika`, `Proteiini [%]`,
+`Kosteus [%]`, `Hiilihydraatti [%]`, `Öljy [%]`, `Typpi [N%]`, `Leveysaste`,
+`Pituusaste`). `read_quality()` finds the table header itself; pick the session
+with `sheet:`. Times are UTC (`+0000`), protein is on dry basis and moisture on
+wet basis (the summary row says so), and every measurement carries a position.
+
+On the first real fields, the analyzer's timestamp was about 20 s earlier than
+the harvester record at the same position (median over hundreds of matched
+positions). Use the positions to estimate `delay_s` for a combine and session:
+the harvester's own delay correction and the analyzer's geotag decide the sign.
+
 ## Still unknown
 
-The documentation shows no response examples: export column names, the
-timestamp format and whether Flow measurements carry their own position are
-unverified. Time-matching to the harvester log does not need positions from
-the analyzer. Check the first real export with `read_quality()` / the QA
-mapping before trusting it.
+Whether the analyzer's geotag marks where the grain was cut or where it was
+measured; with it, `delay_s` could be derived instead of estimated.
