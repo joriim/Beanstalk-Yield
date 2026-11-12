@@ -299,3 +299,17 @@ def test_chain_replaces_entered_moisture(tmp_path):
     assert any("entered or held" in w for w in qa["warnings"])
     rec = pd.read_parquet(s.outputs["L3"])
     assert (rec["moisture_source"] == 3).sum() >= 300
+
+
+def test_default_value_between_measurements_and_implausible_readings():
+    from yieldsuite.quality.moisture import entered_values
+
+    rng = np.random.default_rng(1)
+    t = np.arange(4000, dtype=float)
+    mc = np.round(18 + rng.normal(0, 1.0, t.size), 1)
+    mc[::8] = 17.0  # default value scattered between real readings
+    mc[[5, 6, 7]] = [4.2, 5.0, 45.0]
+    bad, info = entered_values(t, mc)
+    assert "17.0" in info["default_values_pct"] and bad[::8].all()
+    assert info["implausible_records"] == 3 and bad[[5, 6, 7]].all()
+    assert bad.sum() < 0.2 * t.size

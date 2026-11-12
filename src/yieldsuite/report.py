@@ -724,6 +724,8 @@ def figure_raster(path_tif, bands, titles, boundary, path, suptitle):
         else:
             vals = a.compressed()
             lo, hi = np.percentile(vals, [2, 98]) if vals.size else (0, 1)
+            if b.endswith("_share"):
+                lo, hi = 0.0, 1.0
             cmap = (
                 "RdYlGn" if b in ("yield", "protein_pct_dm", "n_uptake_kg_ha")
                 else "YlGnBu" if b.startswith("moisture") and b != "moisture_measured_share"

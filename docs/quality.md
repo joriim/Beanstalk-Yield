@@ -99,7 +99,10 @@ task, manual entry) logs one value unchanged for minutes. Such values are not
 measurements, and a dry yield standardised with them is off by about 1.2 % per
 point. L2 flags, per machine, the whole log when it hardly varies, runs of ≥ 30
 identical values of a value that fills ≥ 100 records in such runs (e.g. 17.0 %),
-and any run ≥ 150 records. Those records get the analyzer reading where one
+any run ≥ 150 records, a value logged ≥ 50 times and ≥ 5 × as often as the
+values next to it (a default written between real readings), readings outside
+8–40 %, and transients more than 4 points from the running median of 61
+records (sensor emptying at pass ends). Those records get the analyzer reading where one
 matches, else moisture interpolated in time from measured neighbours (≤ 10 min),
 else the field median. This works without an analyzer too. The records keep
 `moisture_sensor` (as logged) and `moisture_source` (0 measured, 1 analyzer,

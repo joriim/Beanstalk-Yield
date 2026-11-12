@@ -103,7 +103,11 @@ def corrected_moisture(sensor, analyzer, mode: str = "auto") -> tuple[np.ndarray
 MIN_RUN = 30  # identical consecutive values counted as a run
 LONG_RUN = 150  # a run this long is not a measurement, whatever the value
 DEFAULT_TOTAL = 100  # a value in runs totalling this many records is a default/entered value
-INTERP_MAX_S = 600.0  # fill entered values from measured ones at most this far in time
+INTERP_MAX_S = 600.0
+TRANSIENT_WINDOW = 61  # records in the running median of the transient check
+TRANSIENT_POINTS = 4.0  # a reading this far (moisture points) from it is a transient
+SPIKE_MIN = 50  # a single value logged at least this often ...
+SPIKE_RATIO = 5.0  # ... and this many times more often than the values next to it  # fill entered values from measured ones at most this far in time
 
 SOURCE_CODES = {
     "logged": 0,
@@ -151,14 +155,35 @@ def entered_values(t, mc) -> tuple[np.ndarray, dict]:
         totals[float(val)] = totals.get(float(val), 0) + int(sz)
         runs[float(val)] = runs.get(float(val), 0) + 1
     defaults = {k for k, tot in totals.items() if tot >= DEFAULT_TOTAL or runs[k] >= 3}
-    flag_sorted = long_ & (np.isin(v, list(defaults)) | (size >= LONG_RUN))
+    # a value logged far more often than its neighbours is a default, also between runs
+    vals, counts = np.unique(v[np.isfinite(v)], return_counts=True)
+    freq = dict(zip(np.round(vals, 1), counts, strict=True))
+    spikes = set()
+    for val, c in freq.items():
+        nb = [freq.get(round(val + d, 1), 0) for d in np.arange(-0.5, 0.51, 0.1)
+              if abs(d) > 1e-9]
+        if c >= SPIKE_MIN and c >= SPIKE_RATIO * max(np.mean(nb), 1.0):
+            spikes.add(float(val))
+    implausible = np.isfinite(v) & ((v < MC_RANGE[0]) | (v > MC_RANGE[1]))
+    # transients: sensor emptying at pass ends, far from the readings around it
+    base = pd.Series(np.where(implausible | np.isin(np.round(v, 1), list(spikes)), np.nan, v))
+    local = base.rolling(TRANSIENT_WINDOW, center=True, min_periods=10).median().to_numpy()
+    transient = np.isfinite(local) & (np.abs(v - local) > TRANSIENT_POINTS)
+    implausible |= transient
+    flag_sorted = (long_ & (np.isin(v, list(defaults)) | (size >= LONG_RUN))) | np.isin(
+        np.round(v, 1), list(spikes)
+    ) | implausible
     bad[order] = flag_sorted
+    defaults |= spikes
     return bad, {
         "measured": True,
         "entered_records": int(bad.sum()),
         "entered_share": float(bad.mean()),
+        "implausible_records": int(implausible.sum()),
+        "transient_records": int(transient.sum()),
         "default_values_pct": {
-            str(k): {"runs": runs[k], "records": totals[k]} for k in sorted(defaults)
+            str(k): {"runs": runs.get(k, 0), "records": int(freq.get(round(k, 1), 0))}
+            for k in sorted(defaults)
         },
     }
 
