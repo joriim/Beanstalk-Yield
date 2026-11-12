@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from datetime import date
 from pathlib import Path
 
 import pandas as pd
@@ -122,6 +123,27 @@ def run_sentinel2_fusion(
     )
     result.model_card["record_corrections"] = corrections
     result.model_card["local_imagery"] = local_reports
+    lightuse_raster = None
+    if config.light_use.enabled:
+        try:
+            lu_card, lu_bands = apply_light_use(config, grid, l4, result, features, records)
+            result.model_card["light_use"] = lu_card
+            if write_raster:
+                from ..l4.io import write_cog
+
+                lightuse_raster = write_cog(
+                    lu_bands, grid, config.crs, out / f"{stem}_lightuse.tif", names=tuple(lu_bands)
+                )
+                lu_card["raster"] = str(lightuse_raster)
+        except Exception as exc:  # noqa: BLE001 - reported in the model card, L5 stays usable
+            result.model_card["light_use_error"] = str(exc)
+    if records is not None:
+        try:
+            result.model_card["review"] = run_review(
+                config, grid, l4, result, records, field_mask, lightuse_raster, out, stem
+            )
+        except Exception as exc:  # noqa: BLE001 - the review must not break L5
+            result.model_card["review_error"] = str(exc)
     card_path = out / f"{stem}_model_card.json"
     card_path.write_text(json.dumps(result.model_card, indent=2, default=str))
 
@@ -188,3 +210,173 @@ def _record_corrections(l4, grid, features, records, polygons, method, min_valid
         }
         out["l4"] = bands
     return out
+
+
+def _harvest_date(config: FieldYearConfig, records) -> date:
+    if config.crop is not None and config.crop.harvest_date:
+        return date.fromisoformat(config.crop.harvest_date)
+    if records is not None and len(records):
+        t = pd.to_datetime(records["t"].max(), unit="s", utc=True).tz_convert("Europe/Helsinki")
+        return t.date()
+    raise ValueError("light use needs crop.harvest_date or harvest records")
+
+
+def apply_light_use(config: FieldYearConfig, grid: Grid, l4: dict, result, features, records):
+    """IPAR, GPP and yield-based RUE per cell; refill the L5 gaps with the light-use
+    predictor when it beats the image model in block cross-validation."""
+    import numpy as np
+
+    from ..weather.agro import daily_indices
+    from ..weather.run import agro_settings, field_location, get_weather
+    from .fuse import cell_centres
+    from .gapfill import SOURCE_FILLED, gap_fill
+    from .lightuse import choose_fill, clear_sky_par, light_use, ratio_cv
+
+    s = config.light_use
+    if config.crop is None or not config.crop.sowing_date:
+        raise ValueError("light use needs crop.sowing_date")
+    sowing = date.fromisoformat(config.crop.sowing_date)
+    harvest = _harvest_date(config, records)
+    days = pd.date_range(sowing, harvest, freq="D")
+    try:
+        weather, prov, (lat, lon) = get_weather(config, grid)
+        di = daily_indices(weather, lat, agro_settings(config, harvest))
+        par = di["par_mj_m2"]
+        if "temperature_2m_mean" in weather:
+            tmean = weather["temperature_2m_mean"]
+        elif {"temperature_2m_max", "temperature_2m_min"} <= set(weather.columns):
+            tmean = (weather["temperature_2m_max"] + weather["temperature_2m_min"]) / 2
+        else:
+            tmean = None
+        par_source = f"ERA5 ({prov.get('source', 'Open-Meteo')})"
+    except Exception as exc:  # noqa: BLE001 - no weather: clear-sky fallback, flagged
+        lat, _ = field_location(config, grid)
+        par = clear_sky_par(lat, days, s.par_fraction)
+        tmean = None
+        par_source = f"clear-sky model (weather unavailable: {str(exc)[:120]})"
+
+    nd = features[features["index"] == "NDVI"]
+    if nd.empty:
+        raise ValueError("light use needs NDVI from Sentinel-2")
+    n = grid.ny * grid.nx
+    wide = nd.pivot_table(index="date", columns="cell", values="value").reindex(columns=range(n))
+    lu = light_use(wide, par, sowing, harvest, s, tmean)
+    ipar, gpp = lu["ipar_mj_m2"], lu["gpp_g_c_m2"]
+
+    y4 = np.asarray(l4["yield"], float).ravel()
+    cov = np.asarray(l4.get("coverage", np.isfinite(l4["yield"])), float).ravel()
+    reliable = np.isfinite(y4) & (cov >= 0.5)
+    if "flagged_share" in l4:
+        reliable &= ~(np.asarray(l4["flagged_share"], float).ravel() > 0.5)
+    rows, cols, xy = cell_centres(grid)
+    cands = {
+        "ipar": ratio_cv(y4, ipar, reliable, rows, cols, s.cv_block_cells),
+        "gpp": ratio_cv(y4, gpp, reliable, rows, cols, s.cv_block_cells),
+    }
+    image_cv = result.model_card.get("fit", {}).get("cv_rmse")
+    choice, reason = choose_fill(image_cv, cands, s)
+
+    bands = result.bands
+    shape = (grid.ny, grid.nx)
+    src = bands["source"].ravel()
+    out_y = bands["yield"].ravel().copy()
+    replaced = 0
+    lu_pred = np.full(n, np.nan)
+    if choice in ("ipar", "gpp"):
+        x = ipar if choice == "ipar" else gpp
+        c = cands[choice]
+        lu_pred = c["ratio"] * x
+        filled = gap_fill(
+            y4,
+            lu_pred,
+            reliable & np.isfinite(lu_pred),
+            xy,
+            c["cv_rmse"],
+            grid.resolution,
+            residual="kriging",
+        )
+        target = (src == SOURCE_FILLED) & np.isfinite(filled["yield"])
+        out_y[target] = filled["yield"][target]
+        sigma = bands["sigma"].ravel().copy()
+        sigma[target] = filled["sigma"][target]
+        bands["sigma"] = sigma.reshape(shape)
+        replaced = int(target.sum())
+        bands["yield"] = out_y.reshape(shape)
+        with np.errstate(invalid="ignore"):
+            bands["relative_yield"] = (100.0 * out_y / np.nanmean(out_y)).reshape(shape)
+
+    inside = np.isfinite(out_y)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        rue = np.where(inside & (ipar > 1), out_y * 100.0 / ipar, np.nan)  # g grain / MJ
+    card = {
+        "par_source": par_source,
+        "temperature": "ERA5 daily mean" if tmean is not None else "not available: f(T) = 1",
+        "sowing_date": sowing.isoformat(),
+        "harvest_date": harvest.isoformat(),
+        "image_dates": len(lu["dates_used"]),
+        "eps_g_c_mj": s.eps_g_c_mj,
+        "field_median": {
+            "ipar_mj_m2": float(np.nanmedian(ipar[inside])),
+            "gpp_g_c_m2": float(np.nanmedian(gpp[inside])),
+            "rue_g_grain_mj": float(np.nanmedian(rue[inside])),
+        },
+        "fill_candidates": {"image": {"cv_rmse": image_cv}, **cands},
+        "fill_used": choice,
+        "fill_reason": reason,
+        "cells_refilled": replaced,
+        "note": "RUE here is grain (at reference moisture) per MJ intercepted PAR; "
+        "sowing date and eps scale IPAR/GPP but not the ratio-based fill.",
+    }
+    lu_bands = {
+        "ipar_mj_m2": np.where(inside, ipar, np.nan).reshape(shape),
+        "gpp_g_c_m2": np.where(inside, gpp, np.nan).reshape(shape),
+        "rue_g_grain_mj": rue.reshape(shape),
+        "lightuse_prediction": np.where(inside, lu_pred, np.nan).reshape(shape),
+    }
+    return card, lu_bands
+
+
+def run_review(config, grid, l4, result, records, field_mask, lightuse_raster, out, stem) -> dict:
+    """Critical review of the yield map against the growth prediction (see l5.review)."""
+    import numpy as np
+
+    from .review import figure, review
+
+    lu = result.model_card.get("light_use", {})
+    pred = result.bands["prediction"]
+    ref = "image model"
+    if lu.get("fill_used") in ("ipar", "gpp") and lightuse_raster is not None:
+        from ..l4.io import read_bands
+
+        b, _, _ = read_bands(lightuse_raster, require_yield=False)
+        pred = np.where(np.isfinite(b["lightuse_prediction"]), b["lightuse_prediction"], pred)
+        ref = f"light use ({lu['fill_used'].upper()})"
+    boundary = edge = None
+    if config.boundary is not None and Path(config.boundary).exists():
+        from ..public.boundary import load_boundary
+        from .fuse import boundary_mask
+
+        geom = load_boundary(config.boundary, config.crs)
+        buf = config.edge_buffer_m if config.edge_buffer_m else 2 * grid.resolution
+        inner = boundary_mask(geom.buffer(-max(buf, grid.resolution)), grid)
+        edge = ~inner
+        try:
+            import geopandas as gpd
+
+            boundary = gpd.GeoSeries([geom], crs=config.crs)
+        except ImportError:
+            boundary = None
+    res = review(records, grid, l4, pred, field_mask=field_mask, edge_mask=edge, reference_name=ref)
+    arrays = res.pop("_arrays")
+    path = out / f"{stem}_review.json"
+    path.write_text(json.dumps(res, indent=2, ensure_ascii=False, default=str))
+    try:
+        fig = figure(
+            {**res, "_arrays": arrays}, grid, boundary, records, out / f"{stem}_review.png"
+        )
+        res["figure"] = str(fig)
+    except ImportError:
+        pass
+    res["file"] = str(path)
+    path.write_text(json.dumps(res, indent=2, ensure_ascii=False, default=str))
+    return {"file": str(path), "summary": res["summary"], "reference": ref}

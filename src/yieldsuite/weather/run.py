@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 import numpy as np
@@ -48,8 +48,9 @@ def agro_settings(config: FieldYearConfig, harvest_fallback: date | None = None)
 
 
 def weather_path(config: FieldYearConfig) -> Path:
-    """Public-data cache next to the outputs: <output_dir>/../public/era5_daily.csv."""
-    return Path(config.output_dir).parent / "public" / "era5_daily.csv"
+    """Public-data cache next to the outputs: <output_dir>/../public/<source>_daily.csv."""
+    name = "fmi_daily.csv" if config.weather.source == "fmi" else "era5_daily.csv"
+    return Path(config.output_dir).parent / "public" / name
 
 
 def get_weather(
@@ -62,6 +63,13 @@ def get_weather(
     lat, lon = field_location(config, grid)
     if path.exists() and not refresh:
         df, prov = openmeteo.load(path)
+        return df, prov, (lat, lon)
+    if config.weather.source == "fmi":
+        from . import fmi
+
+        end = min(date(config.year, 10, 31), date.today() - timedelta(days=1))
+        df, prov = fmi.fetch_daily(lat, lon, date(config.year, 4, 15), end)
+        openmeteo.save(df, prov, path)
         return df, prov, (lat, lon)
     req = openmeteo.WeatherRequest(
         lat=lat,

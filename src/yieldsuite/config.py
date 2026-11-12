@@ -4,11 +4,15 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import yaml
 
 from .levels import ProductClass, classify_product
 from .registry import MachineProfile
+
+if TYPE_CHECKING:
+    from .l5.lightuse import LightUseSettings
 
 DEFAULT_SLACK_CHANNEL = "#yield-data-suite"
 
@@ -163,6 +167,7 @@ class FieldYearConfig:
     quality: QualityConfig | None = None
     parcel_ids: list[str] = field(default_factory=list)  # parcel numbers of this field
     source_path: Path | None = None  # the YAML file this config was read from (audit)
+    light_use: LightUseSettings = field(default_factory=lambda: _light_use_default())
 
     @property
     def sentinel2(self) -> ImagerySource | None:
@@ -268,6 +273,7 @@ def load_config(path: str | Path) -> FieldYearConfig:
         quality=_quality(raw.get("quality"), base),
         parcel_ids=[str(v) for v in raw.get("parcel_ids") or []],
         source_path=path.resolve(),
+        light_use=_light_use(raw.get("light_use")),
     )
 
 
@@ -286,3 +292,17 @@ def _quality(raw: dict | None, base: Path) -> QualityConfig | None:
         n_factor=float(raw.get("n_factor", 6.25)),
         lab_samples=_path(base, raw.get("lab_samples")),
     )
+
+
+def _light_use_default():
+    from .l5.lightuse import LightUseSettings
+
+    return LightUseSettings()
+
+
+def _light_use(raw: dict | None):
+    from .l5.lightuse import LightUseSettings
+
+    if not raw:
+        return LightUseSettings()
+    return LightUseSettings(**{"enabled": True, **raw})
