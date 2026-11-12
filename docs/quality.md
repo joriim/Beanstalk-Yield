@@ -92,6 +92,42 @@ readings and the change of the mass at reference moisture are in the L4 QA
 (`analyzer_moisture`). The analyzer's own moisture is not lab-checked by the
 suite; a lab moisture sample makes the correction traceable.
 
+## Entered combine moisture
+
+A combine moisture sensor that is not reading (measuring cell empty, start of a
+task, manual entry) logs one value unchanged for minutes. Such values are not
+measurements, and a dry yield standardised with them is off by about 1.2 % per
+point. L2 flags, per machine, the whole log when it hardly varies, runs of ≥ 30
+identical values of a value that fills ≥ 100 records in such runs (e.g. 17.0 %),
+and any run ≥ 150 records. Those records get the analyzer reading where one
+matches, else moisture interpolated in time from measured neighbours (≤ 10 min),
+else the field median. This works without an analyzer too. The records keep
+`moisture_sensor` (as logged) and `moisture_source` (0 measured, 1 analyzer,
+2 calibrated, 3 interpolated, 4 median, 5 vendor reference).
+
+## Moisture map
+
+`L4_<field>_<year>_moisture.tif` (every run with moisture): mass-weighted
+moisture per cell as harvested, its harvest-time trend (30 min running median:
+dew in the morning, drying during the day), the place part (field median +
+departure from the trend: wetter spots with late ripening, lodging or wet
+soil) and the share of mass with measured moisture. Harvest order is partly
+spatial, so broad gradients along the harvest direction end up in the trend.
+
+## Other analyzer quantities
+
+Q4 also holds the analyzer's moisture (`moisture_analyzer_pct`) and any other
+quantity the export carries (`carbohydrate_pct_dm`, `oil_pct_dm`,
+`starch_pct_dm`), mass-weighted per cell. The QA lists which quantities were
+measured and which columns were empty. GrainSense exports seen so far
+(barley BRL_25_1, oat OAT_25_1): protein, moisture, carbohydrate and N %
+(= protein / 6.25, not mapped separately) are measured; oil is "-" (not in
+these calibrations); wet gluten, broken and green kernels and hectolitre
+weight are empty. Each reading carries its GPS position: the share of
+readings on the field is checked, so a session (sheet) assigned to the wrong
+field is caught. Failed scans (carbohydrate 0 %, moisture outside 8–40 %) are
+dropped from every map.
+
 ## Real exports (November 2026)
 
 A GrainSense app session export (XLSX) has a `Summary` sheet and one sheet per

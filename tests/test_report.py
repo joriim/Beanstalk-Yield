@@ -62,7 +62,9 @@ def test_report_has_every_level_figure_process_and_audit(ran, tmp_path, lang):
     html = (out / f"{stem}_report.html").read_text()
     for level in ("L0", "L1A", "L1B", "L2", "L3", "L4"):
         assert f"<h3>{level} " in html
-    assert html.count("data:image/png;base64,") == 7  # pipeline, summary, L1A-L4
+    # pipeline, summary, L1A-L4, moisture time series and maps
+    assert html.count("data:image/png;base64,") == 9
+    assert ("Jyvän kosteus" if lang == "fi" else "Grain moisture") in html
     assert ("tavu tavulta samat" if lang == "fi" else "byte-identical") in html
     process = (out / f"{stem}_process.md").read_text()
     assert "## L3" in process and "k" in process
@@ -75,6 +77,8 @@ def test_report_has_every_level_figure_process_and_audit(ran, tmp_path, lang):
         "L2_yield_records.png",
         "L3_flags.png",
         "L4_grid.png",
+        "moisture.png",
+        "moisture_time.png",
         "pipeline.png",
         "summary.png",
     ]

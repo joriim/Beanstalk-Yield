@@ -225,7 +225,8 @@ def test_vendor_dry_yield_rewetted_with_corrected_moisture():
 
     n = 100
     t = np.arange(n, dtype=float) * 2 + 1.7e9
-    df = pd.DataFrame({"moisture_sensor": np.full(n, 12.0), "vendor_dry_moisture": 14.0})
+    sensor = 12.0 + 0.1 * np.sin(np.arange(n))  # measured: varies
+    df = pd.DataFrame({"moisture_sensor": sensor, "vendor_dry_moisture": 14.0})
     cfg = SimpleNamespace(
         quality=SimpleNamespace(moisture="auto", sources=[SimpleNamespace(
             path="x", machine_id="m", format="auto", columns={}, sheet=None, delay_s=0.0,
@@ -235,10 +236,12 @@ def test_vendor_dry_yield_rewetted_with_corrected_moisture():
     q = pd.DataFrame({"t": t, "protein_pct": 13.0, "moisture_pct": 15.0})
     cache = {"x": (SimpleNamespace(report={"median_interval_s": 2.0}), q, {"readings": n})}
     dry = np.full(n, 1.0)  # kg/s at the vendor's 14 %, from a combine reading 12 %
-    mc, mass, info = qm.apply(cfg, df, t, np.full(n, 14.0), dry, "m", cache)
-    assert info["vendor_dry_rewetted"] == n and np.allclose(mc, 15.0)
-    # wet mass = 1 x 86 / 88; at 14 % with the true 15 %: x 85 / 86 -> 85 / 88
-    assert to_reference_moisture(mass, mc, 14.0)[0] == pytest.approx(85 / 88)
+    cache = {"x|None": cache["x"]}
+    mc, mass, info, _ = qm.apply(cfg, df, t, np.full(n, 14.0), dry, "m", cache)
+    assert info["vendor_dry_rewetted"] == n and np.allclose(mc, 15.0, atol=0.15)
+    # wet mass = 1 x 86 / (100 - sensor); at 14 % with the corrected moisture
+    expect = 86 / (100 - sensor) * (100 - mc) / 86
+    np.testing.assert_allclose(to_reference_moisture(mass, mc, 14.0), expect)
 
 
 def test_chain_uses_analyzer_moisture(tmp_path):
@@ -253,10 +256,46 @@ def test_chain_uses_analyzer_moisture(tmp_path):
     s = run(load_config(cfg_path), Level.L4)
     assert s.ok, s.error
     qa = json.loads(open(s.outputs["qa"]).read())
-    m = qa["analyzer_moisture"]["combine-a"]
+    m = qa["moisture"]["combine-a"]
     assert m["mode"] == "calibrate" and m["median_offset_pct"] == pytest.approx(2.0, abs=0.2)
     assert m["mass_at_reference_change_pct"] == pytest.approx(-2.3, abs=0.3)
     raw["quality"]["moisture"] = "off"
     cfg_path.write_text(yaml.safe_dump(raw))
     s = run(load_config(cfg_path), Level.L4)
-    assert "analyzer_moisture" not in json.loads(open(s.outputs["qa"]).read())
+    assert "moisture" not in json.loads(open(s.outputs["qa"]).read())
+
+
+def test_entered_combine_moisture_detected_and_replaced():
+    from yieldsuite.quality.moisture import SOURCE_CODES, entered_values, interpolate_in_time
+
+    rng = np.random.default_rng(0)
+    t = np.arange(3000, dtype=float) * 2
+    mc = np.round(15 + 0.5 * np.sin(t / 900) + rng.normal(0, 0.2, t.size), 1)
+    mc[100:300] = 17.0  # held default value, twice
+    mc[2000:2100] = 17.0
+    bad, info = entered_values(t, mc)
+    assert bad[100:300].all() and bad[2000:2100].all() and bad.sum() == 300
+    assert "17.0" in info["default_values_pct"]
+    filled = interpolate_in_time(t, mc, bad)
+    assert np.isfinite(filled[100:300]).all() and abs(np.median(filled[100:300]) - 15) < 1
+    const, info = entered_values(t, np.full(t.size, 17.0))
+    assert const.all() and info["measured"] is False
+    assert SOURCE_CODES["interpolated"] == 3
+
+
+def test_chain_replaces_entered_moisture(tmp_path):
+    cfg_path = synthetic.write_demo(tmp_path)
+    raw = yaml.safe_load(cfg_path.read_text())
+    log = tmp_path / raw["harvest_logs"][0]["path"]
+    df = pd.read_csv(log)
+    col = raw["harvest_logs"][0].get("columns", {}).get("moisture", "Moisture_pct")
+    df.loc[200:600, col] = 17.0
+    df.to_csv(log, index=False)
+    s = run(load_config(cfg_path), Level.L4)
+    assert s.ok, s.error
+    qa = json.loads(open(s.outputs["qa"]).read())
+    ent = qa["moisture"]["combine-a"]["combine_moisture"]
+    assert ent["entered_records"] >= 300
+    assert any("entered or held" in w for w in qa["warnings"])
+    rec = pd.read_parquet(s.outputs["L3"])
+    assert (rec["moisture_source"] == 3).sum() >= 300

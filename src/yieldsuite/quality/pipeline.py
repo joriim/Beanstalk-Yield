@@ -30,8 +30,16 @@ QUALITY_SYNONYMS = {
     "oil": ["oil", "oljy", "oel", "fat", "rasva"],
     "starch": ["starch", "tarkkelys", "staerke"],
     "carbohydrate": ["carbohydrate", "carbohydrates", "hiilihydraatti", "kohlenhydrate"],
+    "nitrogen": ["nitrogen", "typpi", "stickstoff"],
+    "gluten": ["wetgluten", "markagluteeni", "feuchtkleber", "gluten", "gluteeni"],
+    "broken": ["brokenkernel", "brokenkernels", "rikkinainenjyva", "bruchkorn"],
+    "green": ["greenkernel", "greenkernels", "vihreajyva"],
+    "latitude": ["latitude", "leveysaste", "lat", "breite"],
+    "longitude": ["longitude", "pituusaste", "lon", "lng", "laenge"],
     "session": ["session", "sessionname", "measurementsession", "sessio"],
 }
+MEASURES = ("protein", "moisture", "oil", "starch", "carbohydrate", "nitrogen", "gluten",
+            "broken", "green")
 
 
 @dataclass
@@ -115,15 +123,24 @@ def read_quality(path, fmt: str = "auto", columns: dict | None = None, sheet=Non
         dayfirst = bool(tcol.astype(str).str.match(r"^\d{1,2}[./]\d{1,2}[./]\d{2,4}").any())
         t = epoch_seconds(pd.to_datetime(tcol, utc=True, dayfirst=dayfirst, format="mixed"))
     out = pd.DataFrame({"t": t})
-    for canon in ("protein", "moisture", "oil", "starch", "carbohydrate"):
+    report["measured"], report["empty"] = [], []
+    for canon in ("latitude", "longitude"):
+        if canon in qm:
+            out[canon] = pd.to_numeric(
+                df[qm[canon]].astype(str).str.replace(",", ".", regex=False), errors="coerce"
+            ).to_numpy(float)
+    for canon in MEASURES:
         if canon in qm:
             v = pd.to_numeric(
                 df[qm[canon]].astype(str).str.replace(",", ".", regex=False), errors="coerce"
             ).to_numpy(float)
             if not np.isfinite(v).any():
+                report["empty"].append(canon)
                 report["warnings"].append(f"{canon}: column {qm[canon]!r} has no values")
                 continue
-            if np.nanmedian(v) <= 1.0:
+            report["measured"].append(canon)
+            big = canon in ("protein", "moisture", "carbohydrate", "starch")
+            if big and np.nanmedian(v) <= 1.0:
                 v = v * 100.0
                 report["warnings"].append(f"{canon}: values look like fractions, x100")
             out[f"{canon}_pct"] = v
@@ -262,9 +279,13 @@ def run_quality(config, state: dict) -> dict:
     moisture = np.full(len(rec), np.nan)
     reports = []
     all_q = []
+    extra: dict[str, np.ndarray] = {}
     for src in qc.sources:
+        from .moisture import clean_readings
+
         res = read_quality(src.path, src.format, src.columns, src.sheet)
-        q = res.measurements
+        q, cleaned = clean_readings(res.measurements, need_moisture=False)
+        res.report["failed_scans_dropped"] = cleaned["dropped"]
         machine = src.machine_id
         prof = config.machines.get(machine)
         delay = (
@@ -283,6 +304,15 @@ def run_quality(config, state: dict) -> dict:
         protein[sel] = aligned["protein_pct"].to_numpy()
         if "moisture_pct" in aligned:
             moisture[sel] = aligned["moisture_pct"].to_numpy()
+        for col in aligned.columns:
+            if col.endswith("_pct") and col not in ("protein_pct", "moisture_pct"):
+                extra.setdefault(col, np.full(len(rec), np.nan))[sel] = aligned[col].to_numpy()
+        res.report["in_field_share"] = _in_field_share(config, q)
+        if res.report["in_field_share"] is not None and res.report["in_field_share"] < 0.5:
+            res.report["warnings"].append(
+                f"only {100 * res.report['in_field_share']:.0f} % of the analyzer positions are "
+                "on this field: is the session (sheet) the right one?"
+            )
         res.report.update(
             machine_id=machine,
             delay_s=delay,
@@ -325,8 +355,20 @@ def run_quality(config, state: dict) -> dict:
         moisture,
         qc.n_factor,
     )
+    # analyzer moisture and the other measured quantities, mass-weighted per cell
+    names = list(Q4_BANDS)
+    for col, vals in [("moisture_pct", moisture), *sorted(extra.items())]:
+        if not np.isfinite(vals).any():
+            continue
+        key = "moisture_analyzer_pct" if col == "moisture_pct" else col.replace("_pct", "_pct_dm")
+        if col == "nitrogen_pct":
+            continue  # GrainSense N % is protein / 6.25: shown as N uptake already
+        bands[key] = _cell_mean(cell, view.mass, clean & np.isfinite(vals), vals, state["grid"])
+        names.append(key)
     qa = {
         "sources": reports,
+        "measured": sorted({m for r in reports for m in r.get("measured", [])}),
+        "not_measured": sorted({m for r in reports for m in r.get("empty", [])}),
         "protein_basis": qc.protein_basis,
         "n_factor": qc.n_factor,
         "lab_calibration": lab,
@@ -346,7 +388,7 @@ def run_quality(config, state: dict) -> dict:
         from ..l4.io import write_cog
 
         files["Q4"] = str(
-            write_cog(bands, state["grid"], config.crs, out / f"{stem}.tif", names=Q4_BANDS)
+            write_cog(bands, state["grid"], config.crs, out / f"{stem}.tif", names=tuple(names))
         )
     except ImportError:
         qa.setdefault("warnings", []).append("rasterio not installed: Q4 GeoTIFF not written")
@@ -361,3 +403,33 @@ def run_quality(config, state: dict) -> dict:
 def _wmean(v, w, mask):
     ok = mask & np.isfinite(v)
     return float(np.average(v[ok], weights=w[ok])) if ok.any() else None
+
+
+def _cell_mean(cell, mass, ok, v, grid):
+    n = grid.ny * grid.nx
+    ok = ok & (cell >= 0)
+    den = np.bincount(cell[ok], mass[ok], minlength=n)
+    num = np.bincount(cell[ok], mass[ok] * v[ok], minlength=n)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        return np.where(den > 0, num / den, np.nan).reshape(grid.ny, grid.nx)
+
+
+def _in_field_share(config, q: pd.DataFrame) -> float | None:
+    """Share of analyzer positions (if the export has them) within 20 m of the field."""
+    if "latitude" not in q or "longitude" not in q or config.boundary is None:
+        return None
+    try:
+        import geopandas as gpd
+
+        from ..public.boundary import load_boundary
+
+        b = load_boundary(config.boundary, config.crs).buffer(20)
+        ok = np.isfinite(q["latitude"]) & np.isfinite(q["longitude"])
+        if not ok.any():
+            return None
+        pts = gpd.GeoSeries(
+            gpd.points_from_xy(q.loc[ok, "longitude"], q.loc[ok, "latitude"]), crs=4326
+        ).to_crs(config.crs)
+        return float(pts.within(b).mean())
+    except (ImportError, OSError, ValueError):
+        return None

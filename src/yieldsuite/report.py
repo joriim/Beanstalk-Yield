@@ -104,6 +104,13 @@ TEXT = {
             "Oikealla tietueiden ero puinnin aikana; musta viiva on liukuva keskiarvo.",
             "season": "Kasvukausi kylvöstä puintiin: ilman ja maan lämpötila, kertyvät "
             "lämpösummat ja päivittäinen säteily; pystyviivat ovat käytetyt kuvapäivät.",
+            "moisture": "Jyvän kosteus soluittain (massapainotettu): puitaessa, paikan osuus "
+            "(lohkon mediaani + poikkeama puinti-ajan trendistä: märemmät kohdat, joissa "
+            "tuleentuminen on myöhässä tai maa märkää), puinti-ajan trendi (30 min liukuva "
+            "mediaani: aamukaste, kuivuminen päivän mittaan) ja mitatun kosteuden osuus.",
+            "moisture_time": "Kosteus puinnin aikana: harmaa = puimurin kirjaama, värit = "
+            "käytetty kosteus lähteittäin. Pitkät vakiojaksot ovat syötettyjä tai jumittuneita "
+            "arvoja, ei mittauksia.",
             "harvest": "Jäikö puuttuva alue puimatta? NDTI ennen ja jälkeen puinnin (sänki "
             "laskee NDTI:tä) ja puuttuvan alueen luokka: muutosta verrataan kirjatun, puidun "
             "alan muutokseen. Magenta viiva rajaa alueen, jolla ei ole puintitietueita. "
@@ -187,6 +194,13 @@ TEXT = {
             "harvest; the black line is a running mean.",
             "season": "Season from sowing to harvest: air and soil temperature, cumulative "
             "degree days and daily radiation; vertical lines are the image dates used.",
+            "moisture": "Grain moisture per cell (mass-weighted): as harvested, the place part "
+            "(field median + departure from the harvest-time trend: wetter spots with late "
+            "ripening or wet soil), the harvest-time trend (30 min running median: dew, drying "
+            "during the day) and the share with measured moisture.",
+            "moisture_time": "Moisture during the harvest: grey = as logged by the combine, "
+            "colours = moisture used, by source. Long constant runs are entered or held "
+            "values, not measurements.",
             "harvest": "Was the unlogged area harvested? NDTI before and after the harvest "
             "(stubble lowers NDTI) and the class of the unlogged area: its change is compared "
             "with the change of the logged, harvested area. The magenta line outlines the "
@@ -710,7 +724,11 @@ def figure_raster(path_tif, bands, titles, boundary, path, suptitle):
         else:
             vals = a.compressed()
             lo, hi = np.percentile(vals, [2, 98]) if vals.size else (0, 1)
-            cmap = "RdYlGn" if b in ("yield", "protein_pct_dm", "n_uptake_kg_ha") else "viridis"
+            cmap = (
+                "RdYlGn" if b in ("yield", "protein_pct_dm", "n_uptake_kg_ha")
+                else "YlGnBu" if b.startswith("moisture") and b != "moisture_measured_share"
+                else "viridis"
+            )
             im = ax.imshow(a, extent=ext, cmap=cmap, vmin=lo, vmax=hi)
             fig.colorbar(im, ax=ax, shrink=0.8)
         _boundary(ax, boundary)
@@ -1068,14 +1086,49 @@ def build_report(
     if q4_path.exists():
         figs["Q4"] = figure_raster(
             q4_path,
-            ["protein_pct_dm", "n_uptake_kg_ha"],
-            {},
+            ["protein_pct_dm", "n_uptake_kg_ha", "moisture_analyzer_pct", "carbohydrate_pct_dm",
+             "oil_pct_dm", "starch_pct_dm"],
+            {
+                "protein_pct_dm": "proteiini (% ka)" if fi else "protein (% DM)",
+                "n_uptake_kg_ha": "typen otto jyviin (kg/ha)" if fi else "N uptake (kg/ha)",
+                "moisture_analyzer_pct": "kosteus, GrainSense (%)" if fi
+                else "moisture, analyzer (%)",
+                "carbohydrate_pct_dm": "hiilihydraatti (% ka)" if fi else "carbohydrate (% DM)",
+                "oil_pct_dm": "öljy (% ka)" if fi else "oil (% DM)",
+                "starch_pct_dm": "tärkkelys (% ka)" if fi else "starch (% DM)",
+            },
             boundary,
             fdir / "Q4.png",
             "Q4 – " + ("jyvän laatu" if fi else "grain quality"),
         )
 
     extras = {}
+    m_path = out / f"L4_{stem}_moisture.tif"
+    if m_path.exists():
+        figs["moisture"] = figure_raster(
+            m_path,
+            ["moisture_pct", "moisture_spatial_pct", "moisture_time_trend_pct",
+             "moisture_measured_share"],
+            {
+                "moisture_pct": "kosteus puitaessa (%)" if fi else "moisture as harvested (%)",
+                "moisture_spatial_pct": "paikan osuus: ilman puinti-ajan vaikutusta (%)" if fi
+                else "place part: harvest-time effect removed (%)",
+                "moisture_time_trend_pct": "puinti-ajan trendi (%)" if fi
+                else "harvest-time trend (%)",
+                "moisture_measured_share": "mitatun kosteuden osuus" if fi
+                else "share with measured moisture",
+            },
+            boundary,
+            fdir / "moisture.png",
+            ("Jyvän kosteus" if fi else "Grain moisture"),
+        )
+        l3 = out / f"L3_{stem}_records.parquet"
+        if l3.exists():
+            try:
+                figs["moisture_time"] = moisture_timeseries(l3, fdir / "moisture_time.png", lang)
+            except (ImportError, KeyError, ValueError):
+                pass
+    extras["qa"] = qa
     review_path = out / f"L5_{stem}_review.json"
     if review_path.exists():
         extras["review"] = json.loads(review_path.read_text())
@@ -1343,6 +1396,9 @@ def _html(
             parts.append("</section>")
             n += 1
 
+    if "moisture" in figs:
+        block, n = _moisture_html(extras.get("qa", {}), figs, lang, n)
+        parts.append(block)
     if extras.get("light_use"):
         block, n = _lightuse_html(extras["light_use"], figs, lang, n)
         parts.append(block)
@@ -1418,3 +1474,91 @@ def _html(
     )
     parts.append("</main></body></html>")
     return "".join(parts)
+
+
+SOURCE_LABEL = {
+    "fi": {0: "puimuri, mitattu", 1: "GrainSense", 2: "puimuri, kalibroitu GrainSenseen",
+           3: "täytetty ajassa (syötetty arvo)", 4: "lohkon mediaani", 5: "valmistajan vakio"},
+    "en": {0: "combine, measured", 1: "analyzer", 2: "combine, calibrated to the analyzer",
+           3: "filled in time (entered value)", 4: "field median", 5: "vendor reference"},
+}
+
+
+def moisture_timeseries(l3_path, path, lang: str = "fi"):
+    """Moisture over harvest time: combine as logged, entered values, and the moisture
+    used, coloured by its source."""
+    import pandas as pd
+
+    plt = _plt()
+    r = pd.read_parquet(l3_path, columns=["t", "machine_id", "moisture_sensor",
+                                         "moisture_aligned", "moisture_source"])
+    r = r.sort_values("t")
+    tt = pd.to_datetime(r["t"], unit="s", utc=True).dt.tz_convert("Europe/Helsinki")
+    fig, ax = plt.subplots(figsize=(12, 4.2))
+    ax.plot(tt, r["moisture_sensor"], ".", ms=1.5, color="#adb5bd",
+            label="puimuri sellaisenaan" if lang == "fi" else "combine as logged")
+    colors = {0: "#495057", 1: "#1c7ed6", 2: "#2b8a3e", 3: "#e8590c", 4: "#c92a2a", 5: "#868e96"}
+    for code, g in r.groupby("moisture_source"):
+        ax.plot(tt[g.index], g["moisture_aligned"], ".", ms=2, color=colors.get(int(code), "k"),
+                label=SOURCE_LABEL[lang].get(int(code), str(code)))
+    ax.set_ylabel("kosteus (%)" if lang == "fi" else "moisture (%)")
+    ax.legend(loc="upper right", fontsize=8, markerscale=5, ncol=2)
+    ax.grid(alpha=0.3)
+    ax.set_title("Kosteus puinnin aikana" if lang == "fi" else "Moisture during the harvest")
+    fig.autofmt_xdate()
+    return _save(fig, path)
+
+
+def _moisture_html(qa: dict, figs: dict, lang: str, n: int) -> tuple[str, int]:
+    e = html.escape
+    fi = lang == "fi"
+    mm = qa.get("moisture_map") or {}
+    rows = []
+    for mid, m in (qa.get("moisture") or {}).items():
+        c = m.get("combine_moisture") or {}
+        if c.get("measured") is False and "entered_value_pct" in c:
+            ent = (f"vakio {c['entered_value_pct']:g} %: syötetty, ei mitattu" if fi
+                   else f"constant {c['entered_value_pct']:g} %: entered, not measured")
+        elif c.get("entered_records"):
+            vals = ", ".join(f"{k} %" for k in c.get("default_values_pct", {}))
+            ent = (f"{c['entered_records']} tietuetta ({100 * c['entered_share']:.0f} %) "
+                   f"jumittunut arvo {vals}" if fi
+                   else f"{c['entered_records']} records ({100 * c['entered_share']:.0f} %) "
+                   f"held at {vals}")
+        else:
+            ent = "mitattu" if fi else "measured"
+        if m.get("method"):
+            cal = (f"GrainSense − puimuri {m.get('median_offset_pct', 0):+.1f} %-yks. "
+                   f"({m['pairs']} paria, {m['method']})" if fi
+                   else f"analyzer − combine {m.get('median_offset_pct', 0):+.1f} points "
+                   f"({m['pairs']} pairs, {m['method']})")
+        else:
+            cal = "–"
+        dm = m.get("mass_at_reference_change_pct")
+        rows.append([e(str(mid)), e(ent), e(cal), "–" if dm is None else f"{dm:+.1f} %"])
+    out = f"<h2>{'Jyvän kosteus' if fi else 'Grain moisture'}</h2>"
+    if mm.get("field_mean_pct") is not None:
+        lo, hi = mm["p10_p90_pct"]
+        tr = mm["time_trend_range_pct"]
+        out += "<p>" + e(
+            f"Lohkon keskikosteus {mm['field_mean_pct']:.1f} % (10–90 %: {lo:.1f}–{hi:.1f} %). "
+            f"Puinti-ajan trendi vaihteli {tr[0]:.1f}–{tr[1]:.1f} %; paikan osuuden hajonta "
+            f"{mm['spatial_sd_pct']:.1f} %-yks. Mitatun kosteuden osuus "
+            f"{100 * mm['measured_share']:.0f} %."
+            if fi else
+            f"Field mean moisture {mm['field_mean_pct']:.1f} % (10–90 %: {lo:.1f}–{hi:.1f} %). "
+            f"The harvest-time trend ranged {tr[0]:.1f}–{tr[1]:.1f} %; the place part varies by "
+            f"{mm['spatial_sd_pct']:.1f} points (SD). Measured moisture covers "
+            f"{100 * mm['measured_share']:.0f} %."
+        ) + "</p>"
+    if rows:
+        out += _table(
+            ["Kone", "Puimurin kosteus", "Kalibrointi", "Vaikutus kuivasatoon"] if fi
+            else ["Machine", "Combine moisture", "Calibration", "Effect on dry yield"],
+            rows,
+        )
+    for key in ("moisture_time", "moisture"):
+        if key in figs:
+            out += _figure(figs, key, TEXT[lang], n)
+            n += 1
+    return out, n

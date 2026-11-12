@@ -152,17 +152,17 @@ def stage_georeference(config: FieldYearConfig, state: dict) -> None:
             moisture = shift_signal(t, moisture, tau_m)
         delays[mid] = {"tau_d_s": tau_d, "tau_m_s": tau_m, **info}
 
-        corr = None
-        if config.quality is not None:
-            from .quality.moisture import apply as analyzer_moisture
+        from .quality.moisture import apply as correct_moisture
 
-            corr = analyzer_moisture(
-                config, df, t, moisture, mass_wet, mid, state.setdefault("_quality_cache", {})
-            )
+        corr = correct_moisture(
+            config, df, t, moisture, mass_wet, mid, state.setdefault("_quality_cache", {})
+        )
+        mc_source = np.zeros(len(t), np.int8)
         if corr is not None:
             mc_before, mass_before = moisture, mass_wet
-            moisture, mass_wet, minfo = corr
-            if minfo.get("mode") in ("calibrate", "replace", "analyzer"):
+            moisture, mass_wet, minfo, src_codes = corr
+            if src_codes is not None:
+                mc_source = src_codes
                 d0, d1 = (
                     np.nansum(
                         np.where(
@@ -174,7 +174,17 @@ def stage_georeference(config: FieldYearConfig, state: dict) -> None:
                     for m, mc in ((mass_before, mc_before), (mass_wet, moisture))
                 )
                 minfo["mass_at_reference_change_pct"] = float(100 * (d1 / d0 - 1)) if d0 else None
-            state["qa"].setdefault("analyzer_moisture", {})[str(mid)] = minfo
+            state["qa"].setdefault("moisture", {})[str(mid)] = minfo
+            ent = minfo.get("combine_moisture", {})
+            n_ent = ent.get("entered_records") or (
+                len(t) if "entered_value_pct" in ent else 0
+            )
+            if n_ent:
+                vals = ", ".join(ent.get("default_values_pct", {})) or ent["entered_value_pct"]
+                state["qa"]["warnings"].append(
+                    f"{mid}: combine moisture entered or held, not measured, in {n_ent} "
+                    f"records ({vals} %); replaced from the analyzer or measured neighbours"
+                )
         has_mc = np.isfinite(moisture)
         mass_ref = np.where(
             has_mc,
@@ -186,6 +196,7 @@ def stage_georeference(config: FieldYearConfig, state: dict) -> None:
         df["hx"], df["hy"], df["heading"] = hx, hy, heading
         df["speed"] = speed
         df["moisture_aligned"] = moisture
+        df["moisture_source"] = mc_source
         df["mass_flow_ref"] = mass_ref
         df["mass_kg"] = np.nan_to_num(mass_ref * dt, nan=0.0)
         df["mass_missing"] = ~np.isfinite(mass_ref)
@@ -422,6 +433,7 @@ def stage_grid(config: FieldYearConfig, state: dict) -> None:
         },
         field_mean_yield_t_ha=float(np.nanmean(bands["yield"])),
     )
+    _moisture_map(config, state)
     _write_outputs(config, state)
     if config.quality is not None and config.quality.sources:
         from .quality.pipeline import run_quality
@@ -433,6 +445,46 @@ def stage_grid(config: FieldYearConfig, state: dict) -> None:
             if q["field_mean_protein_pct_dm"] is not None
             else "quality: no matched measurements"
         )
+
+
+def _moisture_map(config: FieldYearConfig, state: dict) -> None:
+    """Grain moisture per cell as harvested, split into harvest-time trend and place."""
+    from .l5.records import RecordView, cell_index
+    from .quality.moisture import MOISTURE_BANDS, moisture_bands
+
+    rec = state["records"]
+    if not np.isfinite(rec["moisture_aligned"].to_numpy(float)).any():
+        return
+    view = RecordView.from_records(rec)
+    cell = cell_index(state["grid"], view.cx, view.cy)
+    bands = moisture_bands(rec, state["grid"], cell, view.clean)
+    state["moisture_bands"] = bands
+    Path(config.output_dir).mkdir(parents=True, exist_ok=True)
+    try:
+        from .l4.io import write_cog
+
+        path = write_cog(
+            bands,
+            state["grid"],
+            config.crs,
+            Path(config.output_dir) / f"{_stem(config, 'L4')}_moisture.tif",
+            names=MOISTURE_BANDS,
+        )
+        state.setdefault("outputs", {})["moisture"] = str(path)
+    except ImportError:
+        pass
+    mc = bands["moisture_pct"]
+    state["qa"]["moisture_map"] = {
+        "field_mean_pct": float(np.nanmean(mc)) if np.isfinite(mc).any() else None,
+        "p10_p90_pct": [float(np.nanpercentile(mc, 10)), float(np.nanpercentile(mc, 90))]
+        if np.isfinite(mc).any() else None,
+        "measured_share": float(np.nanmean(bands["moisture_measured_share"])),
+        "spatial_sd_pct": float(np.nanstd(bands["moisture_spatial_pct"])),
+        "time_trend_range_pct": [
+            float(np.nanmin(bands["moisture_time_trend_pct"])),
+            float(np.nanmax(bands["moisture_time_trend_pct"])),
+        ],
+    }
 
 
 def _write_outputs(config: FieldYearConfig, state: dict) -> None:
