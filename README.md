@@ -121,7 +121,7 @@ Pre-alpha. Working end to end:
   residual-shift check of the delay. Not yet run against the live backend.
 
 Not yet: raw-force (L0) input, validation of ISOXML on real terminal files,
-elevation/soil/station-weather tools in the MCP server, PlanetScope download,
+elevation/soil/station-weather tools in the MCP server,
 the PostGIS/pgSTAC server.
 
 ## Työnkulkuohje (suomeksi)
