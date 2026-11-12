@@ -100,6 +100,9 @@ Pre-alpha. Working end to end:
   checks Sentinel-2 and Landsat around the harvest (stubble lowers NDTI) and
   suggests a PlanetScope scene for strips too narrow for 20–30 m pixels
   (`yieldsuite harvest-check`, [docs/l5-sentinel2.md](docs/l5-sentinel2.md)).
+- **Timelapse and 3D**: video of the yield and quality maps filling in with the
+  combine and header state, and a rotatable 3D viewer on the NLS 2 m terrain
+  (`yieldsuite timelapse`, [docs/timelapse.md](docs/timelapse.md)).
 - **QGIS plugin** ([qgis_plugin/README.md](qgis_plugin/README.md)): nine
   Processing algorithms (inspect, parcel boundary, machine profile / antenna
   offset, scale ticket, run chain, delay, fusion, zones, weather)

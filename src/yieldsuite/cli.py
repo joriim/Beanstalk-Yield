@@ -316,6 +316,59 @@ def _cmd_harvest_check(args) -> int:
     return 0
 
 
+def _cmd_timelapse(args) -> int:
+    import numpy as np
+
+    from .viz.timelapse import load_track
+
+    cfg = load_config(args.config)
+    out = Path(args.out or Path(cfg.output_dir) / "viz")
+    track = load_track(cfg)
+    boundary = None
+    if cfg.boundary is not None and Path(cfg.boundary).exists():
+        import geopandas as gpd
+
+        boundary = gpd.read_file(cfg.boundary).to_crs(cfg.crs)
+    dem = Path(args.dem) if args.dem else Path(cfg.output_dir) / "dem_2m.tif"
+    if not args.dem and not args.no_dem and not dem.exists():
+        if cfg.crs.upper() != "EPSG:3067":
+            print("no DEM: give --dem (the Paituli DEM is in EPSG:3067)", file=sys.stderr)
+            dem = None
+        else:
+            from .public import paituli_dem
+
+            ok = np.isfinite(track.x)
+            bb = (float(np.nanmin(track.x[ok])) - 80, float(np.nanmin(track.y[ok])) - 80,
+                  float(np.nanmax(track.x[ok])) + 80, float(np.nanmax(track.y[ok])) + 80)
+            if boundary is not None:
+                b = boundary.total_bounds
+                bb = (min(bb[0], b[0] - 60), min(bb[1], b[1] - 60),
+                      max(bb[2], b[2] + 60), max(bb[3], b[3] + 60))
+            try:
+                paituli_dem.fetch(bb, dem)
+                print(f"DEM: {dem} ({paituli_dem.ATTRIBUTION})")
+            except Exception as exc:  # noqa: BLE001 - flat terrain then
+                print(f"no DEM ({exc}); flat terrain", file=sys.stderr)
+                dem = None
+    if args.no_dem:
+        dem = None
+    title = args.title or (f"Lohko {cfg.field_id} · puinti {cfg.year}" if args.lang == "fi"
+                           else f"Field {cfg.field_id} · harvest {cfg.year}")
+    stem = f"{cfg.field_id}_{cfg.year}"
+    if not args.no_html:
+        from .viz.viewer3d import build_html
+
+        p = build_html(track, out / f"{stem}_harvest_3d.html", boundary, dem, title, args.lang)
+        print(f"3D viewer: {p}")
+    if not args.no_video:
+        from .viz.video import write_video
+
+        p = write_video(track, out / f"{stem}_timelapse.mp4", boundary, dem, args.seconds,
+                        args.fps, args.lang)
+        print(f"timelapse: {p}")
+    return 0
+
+
 def _cmd_s2_search(args) -> int:
     from .l4.io import read_bands
     from .public.field import field_bbox_wgs84
@@ -612,6 +665,21 @@ def build_parser() -> argparse.ArgumentParser:
     hv.add_argument("--no-planet", action="store_true", help="do not search PlanetScope")
     hv.add_argument("--lang", choices=["fi", "en"], default="fi")
     hv.set_defaults(func=_cmd_harvest_check)
+
+    tl = sub.add_parser(
+        "timelapse", help="harvest timelapse video and 3D terrain viewer (yield, quality, header)"
+    )
+    tl.add_argument("config")
+    tl.add_argument("--out", help="folder (default <output_dir>/viz)")
+    tl.add_argument("--dem", help="DEM GeoTIFF (default: NLS 2 m from Paituli, cached)")
+    tl.add_argument("--no-dem", action="store_true", help="flat terrain")
+    tl.add_argument("--no-video", action="store_true")
+    tl.add_argument("--no-html", action="store_true")
+    tl.add_argument("--seconds", type=float, default=40.0, help="video length (default 40 s)")
+    tl.add_argument("--fps", type=int, default=25)
+    tl.add_argument("--title")
+    tl.add_argument("--lang", choices=["fi", "en"], default="fi")
+    tl.set_defaults(func=_cmd_timelapse)
 
     s2 = sub.add_parser("s2-search", help="list Sentinel-2 scenes over the field (STAC)")
     s2.add_argument("config")
