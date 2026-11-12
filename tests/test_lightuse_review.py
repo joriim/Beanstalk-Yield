@@ -123,3 +123,20 @@ def test_fmi_parse_and_cloud_radiation_model():
     cloudy = fmi.modelled_daily_radiation(frame(8.0), 62.68, 22.84)
     assert 25 < clear.iloc[0] < 35  # a clear midsummer day at 62.7 N
     assert cloudy.iloc[0] == pytest.approx(0.25 * clear.iloc[0], rel=0.01)
+
+
+def test_season_table_degree_days_and_modelled_soil():
+    from yieldsuite.weather.season import model_soil_temperature, season_table
+
+    days = pd.date_range("2026-05-01", "2026-09-30", freq="D")
+    w = pd.DataFrame({"temperature_2m_mean": 15.0, "shortwave_radiation_sum": 20.0}, index=days)
+    w.iloc[:5, 0] = 5.0
+    t, s = season_table(w, date(2026, 5, 10), date(2026, 8, 17))
+    assert s["days"] == 100 and s["gdd_air"] == pytest.approx(100 * 10.0)
+    assert s["radiation_mj_m2"] == pytest.approx(2000.0) and s["par_mj_m2"] == pytest.approx(960.0)
+    assert "modelled" in s["soil_temperature_source"]
+    soil = model_soil_temperature(pd.Series([0.0, 10, 10, 10, 10]), tau_days=2)
+    assert soil.iloc[1] == pytest.approx(5.0) and soil.iloc[-1] < 10  # lags behind the air
+    w["soil_temperature_0_to_7cm"] = 12.0
+    _, s2 = season_table(w, date(2026, 5, 10), date(2026, 8, 17))
+    assert s2["soil_temperature_source"].startswith("ERA5") and s2["gdd_soil"] == pytest.approx(700)

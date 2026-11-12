@@ -172,13 +172,15 @@ def review(
                     6,
                     f"Vastakkaisiin suuntiin ajettujen kaistojen ero {diff:+.1f} %. "
                     + (
-                        "Viittaa virtausviiveen tai antennin sijainnin virheeseen, tai rinteeseen."
+                        "Viittaa virtausviiveen tai antennin sijainnin (myös sivuttaissiirron) "
+                        "virheeseen, tai rinteeseen."
                         if abs(diff) >= 3
                         else "Ei suuntavirhettä."
                     ),
                     f"Passes driven in opposite directions differ by {diff:+.1f} %. "
                     + (
-                        "Points to a flow-delay or antenna-offset error, or a slope."
+                        "Points to a flow-delay or antenna-offset (incl. lateral) error, "
+                        "or a slope."
                         if abs(diff) >= 3
                         else "No direction bias."
                     ),
@@ -204,14 +206,17 @@ def review(
                 f"Nopeimmalla neljänneksellä ({q3:.1f} m/s+) sato on {eff:+.1f} % eri tasolla "
                 f"kuin hitaimmalla ({q1:.1f} m/s−), r {corr:+.2f}. "
                 + (
-                    "Mahdollisia leikkuu- tai puintitappioita tai virtausviiveen vaikutusta."
+                    "Mahdollisia leikkuu- tai puintitappioita tai virtausviiveen vaikutusta; "
+                    "toisaalta harvassa kasvustossa ajetaan usein lujempaa, joten "
+                    "syy-yhteyden suuntaa ei voi päätellä tästä."
                     if abs(eff) >= 5 and abs(corr) >= 0.1
                     else "Ei selvää nopeusvaikutusta."
                 ),
                 f"The fastest quarter ({q3:.1f} m/s+) differs by {eff:+.1f} % from the "
                 f"slowest ({q1:.1f} m/s−), r {corr:+.2f}. "
                 + (
-                    "Possible header or threshing losses or flow-lag effects."
+                    "Possible header or threshing losses or flow-lag effects; operators also "
+                    "drive faster in thin crop, so the direction of cause is open."
                     if abs(eff) >= 5 and abs(corr) >= 0.1
                     else "No clear speed effect."
                 ),

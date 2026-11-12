@@ -20,6 +20,7 @@ from __future__ import annotations
 import base64
 import html
 import json
+import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -98,6 +99,11 @@ TEXT = {
             "lähde (mitattu tai kuvien avulla täytetty), täytettyjen solujen epävarmuus ja "
             "suhteellinen sato (lohkon keskiarvo = 100 %). Vain lohkon sisäiset solut.",
             "Q4": "Jyvän laatu (proteiini, typen otto).",
+            "review": "Vasemmalla sadon ja kasvuennusteen ero soluittain (punainen: sato "
+            "ennustetta pienempi; mustat ruudut: vajealueet, magenta: ylijäämäalueet). "
+            "Oikealla tietueiden ero puinnin aikana; musta viiva on liukuva keskiarvo.",
+            "season": "Kasvukausi kylvöstä puintiin: ilman ja maan lämpötila, kertyvät "
+            "lämpösummat ja päivittäinen säteily; pystyviivat ovat käytetyt kuvapäivät.",
         },
         "verify_ok": "Kaikki syötteet ja tuotteet ovat tavu tavulta samat kuin ajossa.",
         "verify_bad": "Tiedostoja on muuttunut ajon jälkeen:",
@@ -171,6 +177,11 @@ TEXT = {
             "each cell (measured or filled from imagery), the uncertainty of filled cells "
             "and relative yield (field mean = 100 %). Cells inside the field only.",
             "Q4": "Grain quality (protein, N uptake).",
+            "review": "Left: yield minus growth prediction per cell (red: below; black "
+            "squares: deficit clusters, magenta: surplus). Right: record residual over the "
+            "harvest; the black line is a running mean.",
+            "season": "Season from sowing to harvest: air and soil temperature, cumulative "
+            "degree days and daily radiation; vertical lines are the image dates used.",
         },
         "verify_ok": "Every input and output is byte-identical to the run.",
         "verify_bad": "Files have changed since the run:",
@@ -845,6 +856,10 @@ def _table(headers, rows) -> str:
 
 
 CSS = """
+.sev{font-weight:700;font-size:.78rem;border-radius:4px;padding:1px 6px}
+.sev.alert{background:#f6d5d5;color:#8a1c1c}
+.sev.watch{background:#fbe8cc;color:#6b4a12}
+.sev.ok{background:#dcefdc;color:#1f5c33}
 .badge{background:#fbe8cc;color:#6b4a12;border-radius:999px;padding:2px 10px;font-size:.8rem}
 figure{margin:12px 0}
 figcaption{color:var(--muted);font-size:.88rem;margin-top:4px}
@@ -997,6 +1012,19 @@ def build_report(
             "Q4 – " + ("jyvän laatu" if fi else "grain quality"),
         )
 
+    extras = {}
+    review_path = out / f"L5_{stem}_review.json"
+    if review_path.exists():
+        extras["review"] = json.loads(review_path.read_text())
+        png = out / f"L5_{stem}_review.png"
+        if png.exists():
+            figs["review"] = Path(shutil.copy(png, fdir / "review.png"))
+    lu = (card or {}).get("light_use")
+    if lu:
+        extras["light_use"] = lu
+        sp = (lu.get("season") or {}).get("figure")
+        if sp and Path(sp).exists():
+            figs["season"] = Path(shutil.copy(sp, fdir / "season.png"))
     steps = process_steps(qa, manifest, lang, card=card)
     md_path = rdir / f"{stem}_process.md"
     md_path.write_text(process_markdown(steps, lang))
@@ -1018,7 +1046,19 @@ def build_report(
 
     html_path = rdir / f"{stem}_report.html"
     html_path.write_text(
-        _html(config, qa, manifest, steps, figs, audit, t, lang, notes=notes, title=title)
+        _html(
+            config,
+            qa,
+            manifest,
+            steps,
+            figs,
+            audit,
+            t,
+            lang,
+            notes=notes,
+            title=title,
+            extras=extras,
+        )
     )
     return {
         "html": str(html_path),
@@ -1036,7 +1076,119 @@ def _figure(figs, key, t, n) -> str:
     )
 
 
-def _html(config, qa, manifest, steps, figs, audit, t, lang, notes=None, title=None) -> str:
+def _review_html(rv: dict, figs: dict, lang: str, n: int) -> tuple[str, int]:
+    e = html.escape
+    fi = lang == "fi"
+    label = {
+        "alert": "HÄLYTYS" if fi else "ALERT",
+        "watch": "SEURAA" if fi else "WATCH",
+        "ok": "OK",
+    }
+    rows = []
+    for c in rv.get("checks", []):
+        v = "–" if c["value"] is None else f"{c['value']:+.1f} {c['unit']}"
+        rows.append(
+            [
+                f"<span class='sev {c['severity']}'>{label[c['severity']]}</span>",
+                e(c["id"]),
+                e(v),
+                e(c["finding"]["fi" if fi else "en"]),
+            ]
+        )
+    head = (
+        ["Taso", "Tarkistus", "Arvo", "Havainto"] if fi else ["Level", "Check", "Value", "Finding"]
+    )
+    intro = (
+        f"Satokarttaa verrataan kasvuennusteeseen ({e(rv.get('reference', ''))}); "
+        f"{rv.get('records_used', 0)} puhdasta tietuetta ja {rv.get('cells_compared', 0)} solua. "
+        "Järjestelmälliset erot osoittavat, mihin satodatassa kannattaa katsoa: ne eivät todista "
+        "syytä."
+        if fi
+        else f"The yield map is compared with the growth prediction ({e(rv.get('reference', ''))});"
+        f" {rv.get('records_used', 0)} clean records and {rv.get('cells_compared', 0)} cells. "
+        "Systematic differences show where to look in the yield data; they do not prove a cause."
+    )
+    out = f"<h2>{'Kriittinen arvio' if fi else 'Critical review'}</h2><p>{intro}</p>"
+    out += _table(head, rows)
+    if "review" in figs:
+        out += _figure(figs, "review", TEXT[lang], n)
+        n += 1
+    return out, n
+
+
+def _lightuse_html(lu: dict, figs: dict, lang: str, n: int) -> tuple[str, int]:
+    e = html.escape
+    fi = lang == "fi"
+    fm = lu.get("field_median", {})
+    rows = [
+        [
+            e(k),
+            "–" if c.get("cv_rmse") is None else f"{c['cv_rmse']:.2f}",
+            "–" if c.get("corr") is None else f"{c['corr']:+.2f}",
+        ]
+        for k, c in lu.get("fill_candidates", {}).items()
+    ]
+    out = f"<h2>{'Valonkäyttö ja kasvukausi' if fi else 'Light use and season'}</h2>"
+    out += "<dl>"
+    items = [
+        ("PAR", lu.get("par_source", "")),
+        ("T", lu.get("temperature", "")),
+        (
+            "kylvö – puinti" if fi else "sowing – harvest",
+            f"{lu.get('sowing_date')} – {lu.get('harvest_date')}",
+        ),
+        ("IPAR (mediaani)" if fi else "IPAR (median)", f"{fm.get('ipar_mj_m2', 0):.0f} MJ/m²"),
+        ("GPP (mediaani)" if fi else "GPP (median)", f"{fm.get('gpp_g_c_m2', 0):.0f} g C/m²"),
+        (
+            "RUE (jyvä / IPAR)" if fi else "RUE (grain / IPAR)",
+            f"{fm.get('rue_g_grain_mj', 0):.2f} g/MJ",
+        ),
+        (
+            "aukkojen täyttö" if fi else "gap fill",
+            f"{lu.get('fill_used')} – {lu.get('fill_reason', '')}",
+        ),
+    ]
+    se = lu.get("season") or {}
+    if se:
+        items += [
+            ("ilman lämpötila" if fi else "air temperature", f"{se['tair_mean_c']:.1f} °C"),
+            (
+                "maan lämpötila" if fi else "soil temperature",
+                f"{se['tsoil_mean_c']:.1f} °C ({se['soil_temperature_source']})",
+            ),
+            (
+                "lämpösumma ilma / maa" if fi else "degree days air / soil",
+                f"{se['gdd_air']:.0f} / {se['gdd_soil']:.0f} °Cd (> {se['t_base_air_c']:g} °C)",
+            ),
+            (
+                "säteily / PAR" if fi else "radiation / PAR",
+                f"{se['radiation_mj_m2']:.0f} / {se['par_mj_m2']:.0f} MJ/m²",
+            ),
+        ]
+        val = se.get("radiation_validation")
+        if val:
+            items.append(
+                (
+                    "säteilymallin tarkistus" if fi else "radiation model check",
+                    f"{val['station']}: r {val['r']:.2f}, RMSE {val['rmse_mj_m2']:.1f} MJ/m²/d, "
+                    f"k {val['k']:.2f} ({val['days']} d)",
+                )
+            )
+    out += "".join(f"<dt>{e(k)}</dt><dd>{e(str(v))}</dd>" for k, v in items) + "</dl>"
+    out += _table(
+        ["ennustaja" if fi else "predictor", "CV RMSE t/ha", "r (sato)" if fi else "r (yield)"],
+        rows,
+    )
+    if "season" in figs:
+        out += _figure(figs, "season", TEXT[lang], n)
+        n += 1
+    return out, n
+
+
+def _html(
+    config, qa, manifest, steps, figs, audit, t, lang, notes=None, title=None, extras=None
+) -> str:
+    extras = extras or {}
     e = html.escape
     area = (qa.get("field_edge") or {}).get("boundary_area_ha")
     mc = qa.get("mass_conservation", {})
@@ -1070,6 +1222,9 @@ def _html(config, qa, manifest, steps, figs, audit, t, lang, notes=None, title=N
     if notes:
         parts.append(f"<h2>{e(t['findings'])}</h2><div class='notes'>{_notes_html(notes)}</div>")
     n = 1
+    if extras.get("review"):
+        block, n = _review_html(extras["review"], figs, lang, n)
+        parts.append(block)
     parts.append(f"<h2>{e(t['overview'])}</h2>")
     for key in ("pipeline", "summary"):
         if key in figs:
@@ -1094,6 +1249,9 @@ def _html(config, qa, manifest, steps, figs, audit, t, lang, notes=None, title=N
             parts.append("</section>")
             n += 1
 
+    if extras.get("light_use"):
+        block, n = _lightuse_html(extras["light_use"], figs, lang, n)
+        parts.append(block)
     parts.append(f"<h2>{e(t['audit'])}</h2>")
     v = audit["verification"]
     parts.append(

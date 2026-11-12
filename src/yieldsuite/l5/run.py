@@ -127,6 +127,19 @@ def run_sentinel2_fusion(
     if config.light_use.enabled:
         try:
             lu_card, lu_bands = apply_light_use(config, grid, l4, result, features, records)
+            tbl = lu_card.pop("_season_table", None)
+            img_dates = lu_card.pop("_image_dates", [])
+            if tbl is not None:
+                tbl.to_csv(out / f"{stem}_season.csv")
+                lu_card["season"]["table"] = str(out / f"{stem}_season.csv")
+                try:
+                    from ..weather.season import figure as season_figure
+
+                    lu_card["season"]["figure"] = str(
+                        season_figure(tbl, lu_card["season"], out / f"{stem}_season.png", img_dates)
+                    )
+                except ImportError:
+                    pass
             result.model_card["light_use"] = lu_card
             if write_raster:
                 from ..l4.io import write_cog
@@ -248,11 +261,13 @@ def apply_light_use(config: FieldYearConfig, grid: Grid, l4: dict, result, featu
             tmean = (weather["temperature_2m_max"] + weather["temperature_2m_min"]) / 2
         else:
             tmean = None
-        par_source = f"ERA5 ({prov.get('source', 'Open-Meteo')})"
+        par_source = prov.get("source", "Open-Meteo ERA5")
+        season = (weather, prov)
     except Exception as exc:  # noqa: BLE001 - no weather: clear-sky fallback, flagged
         lat, _ = field_location(config, grid)
         par = clear_sky_par(lat, days, s.par_fraction)
         tmean = None
+        season = None
         par_source = f"clear-sky model (weather unavailable: {str(exc)[:120]})"
 
     nd = features[features["index"] == "NDVI"]
@@ -327,6 +342,25 @@ def apply_light_use(config: FieldYearConfig, grid: Grid, l4: dict, result, featu
         "note": "RUE here is grain (at reference moisture) per MJ intercepted PAR; "
         "sowing date and eps scale IPAR/GPP but not the ratio-based fill.",
     }
+    if season is not None:
+        from ..weather.season import season_table
+
+        tbl, summ = season_table(
+            season[0],
+            sowing,
+            harvest,
+            t_base_air=config.crop.t_base_c,
+            t_base_soil=config.crop.t_base_c,
+            par_fraction=s.par_fraction,
+        )
+        summ["weather_source"] = par_source
+        if season[1].get("station_distance_km") is not None:
+            summ["station_distance_km"] = season[1]["station_distance_km"]
+        if season[1].get("validation"):
+            summ["radiation_validation"] = season[1]["validation"]
+        card["season"] = summ
+        card["_season_table"] = tbl
+        card["_image_dates"] = lu["dates_used"]
     lu_bands = {
         "ipar_mj_m2": np.where(inside, ipar, np.nan).reshape(shape),
         "gpp_g_c_m2": np.where(inside, gpp, np.nan).reshape(shape),
