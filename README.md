@@ -92,9 +92,13 @@ Pre-alpha. Working end to end:
   scene search over the field (STAC API), **field boundary by parcel number**
   from the Ruokavirasto parcel register (`yieldsuite parcel <id>`; layer and id
   attribute discovered from the service), boundary in L0 and the `FIELD_EDGE` flag.
-- **QGIS plugin** ([qgis_plugin/README.md](qgis_plugin/README.md)): seven
-  Processing algorithms (inspect, parcel boundary, run chain, delay, fusion,
-  zones, weather)
+- **Machine and scale-ticket input**: `yieldsuite machine set|estimate-offset`
+  (antenna offset, with the lateral offset estimated from the pass spacing) and
+  `yieldsuite tickets add|import|list|remove`, logged in `inputs_log.jsonl`
+  ([docs/harvester-chain.md](docs/harvester-chain.md)).
+- **QGIS plugin** ([qgis_plugin/README.md](qgis_plugin/README.md)): nine
+  Processing algorithms (inspect, parcel boundary, machine profile / antenna
+  offset, scale ticket, run chain, delay, fusion, zones, weather)
   on the same core; tested in a headless QGIS 3.34.
 - **Grain quality** ([docs/quality.md](docs/quality.md)): GrainSense Flow /
   combine analyzer exports or cloud API, aligned to the harvester records,

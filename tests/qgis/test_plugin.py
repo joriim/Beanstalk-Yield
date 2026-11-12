@@ -64,8 +64,10 @@ def test_provider_lists_algorithms(qgis_app):
         "estimate_delay",
         "fuse_sentinel2",
         "inspect_file",
+        "machine_profile",
         "parcel_boundary",
         "run_chain",
+        "scale_ticket",
         "weather",
         "zones",
     ]

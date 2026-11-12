@@ -127,6 +127,17 @@ def build_server(store: FarmStore, actor: str | None = None):
         return {"machines": result}
 
     @server.tool(annotations=read)
+    def estimate_antenna_offset(farm: str, field: str, year: int) -> dict:
+        """Estimate each machine's lateral antenna offset from the spacing of adjacent
+        passes driven in opposite directions (facing vs back-to-back pairs). Nothing is
+        written; if 'significant', propose update_machine_profile with
+        antenna_offset_m [forward, suggested_right_m] after the user confirms it."""
+        from .pipeline import estimate_offsets
+
+        cfg = guard(store.load_config, farm, field, year)
+        return {"machines": guard(estimate_offsets, cfg)}
+
+    @server.tool(annotations=read)
     def inspect_harvest_file(
         path: str, crs: str = "EPSG:3067", options: dict | None = None
     ) -> dict:

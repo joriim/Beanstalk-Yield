@@ -68,6 +68,61 @@ def estimate_delay(config_path: str) -> dict:
     return {"machines": res, "message": "\n".join(lines)}
 
 
+def set_machine(
+    config_path: str,
+    machine_id: str,
+    antenna_forward_m: float | None = None,
+    antenna_right_m: float | None = None,
+    header_width_m: float | None = None,
+    reason: str = "",
+) -> dict:
+    from . import inputs
+
+    ch = inputs.set_machine(
+        config_path, machine_id, antenna_forward_m, antenna_right_m, header_width_m, None, reason
+    )
+    return {**ch.as_dict(), "message": f"{ch.machine_id}: {ch.old} -> {ch.new}"}
+
+
+def estimate_antenna_offset(config_path: str) -> dict:
+    from .pipeline import estimate_offsets
+
+    res = estimate_offsets(load_config(config_path))
+    lines = []
+    for mid, d in res.items():
+        if not d["identifiable"]:
+            lines.append(f"{mid}: not identifiable - {d['reason']}")
+            continue
+        lo, hi = d["ci95_m"]
+        lines.append(
+            f"{mid}: passes {d['lateral_error_m']:+.2f} m right of the header centre "
+            f"(95 % {lo:+.2f}..{hi:+.2f}); "
+            + (f"suggested antenna right offset {d['suggested_right_m']:+.2f} m"
+               if d["significant"] else "no correction needed")
+        )
+    return {"machines": res, "message": "\n".join(lines)}
+
+
+def add_scale_ticket(
+    config_path: str,
+    mass_kg: float,
+    machine_id: str | None = None,
+    moisture_pct: float | None = None,
+    field_share: float | None = None,
+    ticket_ref: str = "",
+    date: str = "",
+) -> dict:
+    from . import inputs
+
+    row = {"mass_kg": mass_kg, "machine_id": machine_id, "moisture_pct": moisture_pct,
+           "field_share": field_share, "ticket_ref": ticket_ref, "date": date}
+    inputs.add_tickets(config_path, [row], reason="entered in QGIS")
+    summ = inputs.ticket_summary(config_path)
+    lines = [f"{r.machine_id}: {int(r.tickets)} tickets, {r.mass_ref_kg / 1000:.2f} t at "
+             "reference moisture" for r in summ.itertuples()]
+    return {"message": "\n".join(lines)}
+
+
 def fuse(
     config_path: str,
     l4_path: str,

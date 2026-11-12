@@ -69,7 +69,61 @@ harvest_logs:
 ```
 
 Scale tickets (`scale_tickets:`) are a CSV with `mass_kg`, and optionally
-`machine_id` and `moisture_pct`.
+`machine_id`, `moisture_pct` and `field_share` (the share of a load that came
+from this field when one load holds grain from several fields).
+
+## Entering antenna offsets and scale tickets
+
+Both are entered with commands that edit `field.yaml` in place (comments are
+kept, the file is parsed again before it is written) and append every change,
+with the old value, who and why, to `inputs_log.jsonl` next to the config. The
+same is available in QGIS (*Inputs → Machine profile*, *Inputs → Add scale
+ticket*) and in the MCP server (`estimate_antenna_offset`,
+`update_machine_profile`, `add_scale_ticket`).
+
+**Antenna position.** `antenna_offset_m` is `[forward, right]` from the GNSS
+antenna to the header centre, in metres. An antenna mounted 0.5 m left of the
+centre line has `right = +0.5`; one on the cab roof 3 m behind the cutter bar
+has `forward = +3`.
+
+```bash
+yieldsuite machine show field.yaml
+yieldsuite machine estimate-offset field.yaml     # lateral offset from the pass spacing
+yieldsuite machine set field.yaml --machine combine-a --antenna-right 0.5 \
+    --reason "measured with a tape, antenna 0.5 m left of the centre line"
+```
+
+`estimate-offset` uses adjacent passes driven in opposite directions. A lateral
+offset `e` left out of the profile draws facing pairs `w - 2e` apart and
+back-to-back pairs `w + 2e` apart; in back-and-forth harvesting the two kinds
+alternate, so `e = (median back-to-back - median facing) / 4`, independent of
+the header width and the driver's overlap. The answer comes with a bootstrap
+95 % interval and is called significant at |e| ≥ 0.1 m with an interval not
+covering 0; confirm it with a tape before entering it. The forward offset
+cannot be told apart from the flow delay this way: measure it. In the L5
+critical review a lateral offset shows up as a level difference between passes
+driven in opposite directions.
+
+**Scale tickets.**
+
+```bash
+yieldsuite tickets add field.yaml --machine combine-a --mass-kg 12340 --moisture 19.5 --ref 4711
+yieldsuite tickets add field.yaml --machine combine-a --mass-t 8.2 --share 0.4 --ref 4712
+yieldsuite tickets import field.yaml vaaka.csv --map mass_kg=Netto --map moisture_pct=Kosteus \
+    --map ticket_ref=Kuitti --unit kg --machine combine-a
+yieldsuite tickets list field.yaml
+yieldsuite tickets remove field.yaml --ref 4712 --reason "wrong field"
+yieldsuite run field.yaml --to L5                 # reconciles per machine, product class absolute
+```
+
+The first ticket creates `scale_tickets.csv` and points the config to it.
+Duplicate ticket numbers, unknown machines, implausible masses or moisture,
+and a mix of machine-specific and unassigned tickets are refused before
+anything is written. Imports read `,` or `;` separated files with decimal
+commas, or Excel. Give the moisture only if the weight is wet; a dryer's dry
+weight at the reference moisture is entered without it. With tickets for every
+machine the chain multiplies each machine's logged mass by
+`k = Σ scale / Σ monitor`, so the field total equals the weighed total.
 
 ## Multi-field point exports
 

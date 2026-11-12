@@ -10,6 +10,8 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
+import numpy as np
+
 from . import stages
 from .config import FieldYearConfig
 from .levels import Level, ProductClass
@@ -133,4 +135,33 @@ def estimate_delays(config: FieldYearConfig) -> dict:
             "used_source": d.get("source", "vendor"),
             "curve": {str(k): v for k, v in curve.items()},
         }
+    return out
+
+
+def estimate_offsets(config: FieldYearConfig) -> dict:
+    """Run ingest and L2 only and report, per machine, the lateral antenna offset
+    the pass geometry suggests (see ``l2.offset``). Nothing is written."""
+    from .l2.offset import estimate_lateral_offset
+
+    state: dict = {}
+    stages.stage_ingest(config, state)
+    stages.stage_mass_flow(config, state)
+    stages.stage_georeference(config, state)
+    rec = state["records"]
+    out = {}
+    for mid, df in rec.groupby("machine_id", sort=False):
+        harvesting = df["swath_used"].to_numpy() > 0
+        pid = np.where(harvesting, df["pass_id"].to_numpy(), -1)
+        est = estimate_lateral_offset(
+            df["hx"], df["hy"], df["heading"], pid, df["swath_used"].where(harvesting)
+        )
+        prof = config.machines.get(mid)
+        fwd, right = prof.antenna_offset_m if prof else (0.0, 0.0)
+        d = est.as_dict()
+        d["profile_antenna_offset_m"] = [fwd, right]
+        if est.identifiable:
+            lo, hi = est.ci95_m
+            d["suggested_right_m"] = round(right - est.lateral_error_m, 2)
+            d["significant"] = bool(abs(est.lateral_error_m) >= 0.1 and (lo > 0 or hi < 0))
+        out[str(mid)] = d
     return out

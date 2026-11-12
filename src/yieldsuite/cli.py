@@ -191,6 +191,107 @@ def _cmd_delay(args) -> int:
     return 0
 
 
+def _cmd_machine(args) -> int:
+    from . import inputs
+    from .pipeline import estimate_offsets
+
+    if args.action == "show":
+        cfg = load_config(args.config)
+        for mid, prof in cfg.machines.items():
+            fwd, right = prof.antenna_offset_m
+            print(
+                f"{mid}: antenna forward {fwd:+.2f} m, right {right:+.2f} m, header "
+                f"{prof.header_width_m} m, tau_d {prof.tau_d_s} s (v{prof.version})"
+            )
+        for e in inputs.read_log(args.config):
+            if e["action"] == "set_machine":
+                print(f"  {e['time']} {e['actor']}: {e['machine_id']} {e['old']} -> {e['new']}"
+                      f" ({e['reason']})")
+        return 0
+    if args.action == "estimate-offset":
+        res = estimate_offsets(load_config(args.config))
+        for mid, d in res.items():
+            if not d["identifiable"]:
+                print(f"{mid}: not identifiable - {d['reason']}")
+                continue
+            lo, hi = d["ci95_m"]
+            print(
+                f"{mid}: passes sit {d['lateral_error_m']:+.2f} m to the right of the header "
+                f"centre (95 % {lo:+.2f} .. {hi:+.2f}; {d['n_facing']} facing / "
+                f"{d['n_back_to_back']} back-to-back pairs, spacing "
+                f"{d['spacing_facing_m']:.2f} / {d['spacing_back_to_back_m']:.2f} m)"
+            )
+            if d["significant"]:
+                print(
+                    f"  suggestion: {_prog_name()} machine set {args.config} --machine {mid} "
+                    f"--antenna-right {d['suggested_right_m']:+.2f} --reason \"estimated from "
+                    f"opposite passes\"  (confirm with a tape measure first)"
+                )
+            else:
+                print("  no correction needed (|e| < 0.1 m or not significant)")
+        return 0
+    change = inputs.set_machine(
+        args.config,
+        args.machine,
+        antenna_forward_m=args.antenna_forward,
+        antenna_right_m=args.antenna_right,
+        header_width_m=args.header_width,
+        tau_d_s=args.tau_d,
+        reason=args.reason or "",
+        actor=args.actor,
+        dry_run=args.dry_run,
+    )
+    print(f"{change.machine_id}: {change.old} -> {change.new}"
+          + (" (dry run, not written)" if args.dry_run else ""))
+    if not args.dry_run:
+        print(f"rerun: {_prog_name()} run {args.config} --to L5")
+    return 0
+
+
+def _cmd_tickets(args) -> int:
+    from . import inputs
+
+    if args.action == "add":
+        if (args.mass_kg is None) == (args.mass_t is None):
+            raise SystemExit("give exactly one of --mass-kg or --mass-t")
+        row = {
+            "mass_kg": args.mass_kg if args.mass_kg is not None else args.mass_t * 1000.0,
+            "machine_id": args.machine,
+            "moisture_pct": args.moisture,
+            "field_share": args.share,
+            "ticket_ref": args.ref,
+            "date": args.date,
+            "note": args.note,
+        }
+        inputs.add_tickets(args.config, [row], args.actor, args.reason or "")
+    elif args.action == "import":
+        mapping = dict(m.split("=", 1) for m in (args.map or []))
+        rows = inputs.import_tickets(
+            args.config, args.file, mapping, args.unit, args.machine, args.actor, args.reason or ""
+        )
+        print(f"imported {len(rows)} tickets")
+    elif args.action == "remove":
+        inputs.remove_ticket(args.config, args.ref, args.reason or "", args.actor)
+        print(f"removed ticket {args.ref}")
+    df = inputs.read_tickets(args.config)
+    if args.action == "list" and len(df):
+        shown = df.drop(columns=[c for c in ("added", "actor") if c in df.columns])
+        print(shown.to_string(index=False))
+    summ = inputs.ticket_summary(args.config)
+    if len(summ):
+        for _, r in summ.iterrows():
+            print(
+                f"{r['machine_id']}: {int(r['tickets'])} tickets, "
+                f"{r['mass_kg'] / 1000:.2f} t weighed, "
+                f"{r['mass_ref_kg'] / 1000:.2f} t at reference moisture"
+            )
+        if args.action != "list":
+            print(f"rerun from L3: {_prog_name()} run {args.config} --to L5")
+    else:
+        print("no scale tickets yet")
+    return 0
+
+
 def _cmd_s2_search(args) -> int:
     from .l4.io import read_bands
     from .public.field import field_bbox_wgs84
@@ -447,6 +548,37 @@ def build_parser() -> argparse.ArgumentParser:
     dl = sub.add_parser("delay", help="estimate the flow delay from opposite passes")
     dl.add_argument("config")
     dl.set_defaults(func=_cmd_delay)
+
+    mc = sub.add_parser("machine", help="machine profile: antenna offset, header width, delay")
+    mc.add_argument("action", choices=["show", "set", "estimate-offset"])
+    mc.add_argument("config")
+    mc.add_argument("--machine", help="machine_id (as in the config)")
+    mc.add_argument("--antenna-forward", type=float, help="antenna to header centre [m], +fwd")
+    mc.add_argument("--antenna-right", type=float, help="antenna to header centre [m], +right")
+    mc.add_argument("--header-width", type=float, help="cutting width [m]")
+    mc.add_argument("--tau-d", type=float, help="grain flow delay [s]")
+    mc.add_argument("--reason", help="why (logged with the change)")
+    mc.add_argument("--actor", help="who (default: login name)")
+    mc.add_argument("--dry-run", action="store_true")
+    mc.set_defaults(func=_cmd_machine)
+
+    tk = sub.add_parser("tickets", help="scale tickets (weighed loads) for reconciliation")
+    tk.add_argument("action", choices=["list", "add", "import", "remove"])
+    tk.add_argument("config")
+    tk.add_argument("file", nargs="?", help="import: weighbridge/dryer CSV or Excel")
+    tk.add_argument("--mass-kg", type=float)
+    tk.add_argument("--mass-t", type=float)
+    tk.add_argument("--moisture", type=float, help="moisture [%%] if the weight is wet")
+    tk.add_argument("--machine", help="machine_id that harvested the load")
+    tk.add_argument("--share", type=float, help="share of the load from this field (0-1)")
+    tk.add_argument("--ref", help="ticket number (duplicates are refused)")
+    tk.add_argument("--date")
+    tk.add_argument("--note")
+    tk.add_argument("--map", action="append", help="import: column map, e.g. mass_kg=Netto")
+    tk.add_argument("--unit", choices=["kg", "t"], default="kg", help="import: mass unit")
+    tk.add_argument("--reason")
+    tk.add_argument("--actor")
+    tk.set_defaults(func=_cmd_tickets)
 
     s2 = sub.add_parser("s2-search", help="list Sentinel-2 scenes over the field (STAC)")
     s2.add_argument("config")
@@ -894,8 +1026,14 @@ def _prog_name() -> str:
 
 
 def main(argv: list[str] | None = None) -> int:
+    from .inputs import InputError
+
     args = build_parser().parse_args(argv)
-    return args.func(args)
+    try:
+        return args.func(args)
+    except InputError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
 
 
 if __name__ == "__main__":

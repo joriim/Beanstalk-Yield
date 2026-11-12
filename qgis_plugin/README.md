@@ -1,6 +1,6 @@
 # QGIS plugin
 
-Processing provider *Beanstalk Yield Suite* with seven algorithms. Each is a thin
+Processing provider *Beanstalk Yield Suite* with nine algorithms. Each is a thin
 wrapper around `yieldsuite.tasks`, so results are identical to the command
 line. Licensed GPL-2.0-or-later (see `LICENSE`), as required for QGIS
 plugins; the core library stays Apache-2.0.
@@ -9,6 +9,8 @@ plugins; the core library stays Apache-2.0.
 |---|---|---|
 | Data → Inspect yield/machine data file | format, columns, units and their source; writes the `harvest_logs` entry | – |
 | Data → Field boundary by parcel number | parcels by peruslohkotunnus from the parcel-register WFS (Ruokavirasto by default) | boundary |
+| Inputs → Machine profile: antenna offset | estimates the lateral antenna offset from the pass spacing, or writes antenna offset / header width to the config (logged) | – |
+| Inputs → Add scale ticket (weighed load) | appends a weighed load to `scale_tickets.csv` for reconciliation | – |
 | Run yield chain (L1-L4 / L5) | the whole chain for a `field.yaml` | L3 records, L4, L5, Q4 |
 | Estimate grain-flow delay | delay from opposite passes vs. the machine profile | – |
 | Fuse L4 with Sentinel-2 (L5) | image model and gap fill on an L4 raster | L5 |

@@ -314,5 +314,90 @@ class ParcelBoundaryAlgorithm(_Base):
         return {"BOUNDARY": out, "OUTPUT": out, "MESSAGE": res["message"]}
 
 
-ALGORITHMS = [InspectFileAlgorithm, ParcelBoundaryAlgorithm, RunChainAlgorithm, EstimateDelayAlgorithm, FuseAlgorithm,
+
+class MachineProfileAlgorithm(_Base):
+    NAME, TITLE, GROUP, GROUP_ID = "machine_profile", "Machine profile: antenna offset", \
+        "Inputs", "inputs"
+    HELP = (
+        "Enters the GNSS antenna position (metres from the antenna to the header centre: "
+        "forward and right; an antenna 0.5 m left of centre is right = +0.5) and the header "
+        "width into the field config. Leave 'Estimate only' on to see the lateral offset "
+        "the pass spacing suggests before writing anything. Every change is logged with "
+        "the reason in inputs_log.jsonl."
+    )
+
+    def initAlgorithm(self, config=None):  # noqa: N802
+        self.addParameter(_config_param())
+        self.addParameter(QgsProcessingParameterBoolean("ESTIMATE", "Estimate only", True))
+        self.addParameter(QgsProcessingParameterString("MACHINE", "Machine id", optional=True))
+        for key, label in (("FORWARD", "Antenna to header centre, forward [m]"),
+                           ("RIGHT", "Antenna to header centre, right [m]"),
+                           ("WIDTH", "Header width [m]")):
+            self.addParameter(QgsProcessingParameterNumber(
+                key, label, QgsProcessingParameterNumber.Double, optional=True))
+        self.addParameter(QgsProcessingParameterString("REASON", "Reason", optional=True))
+        self.addOutput(QgsProcessingOutputString("MESSAGE", "Summary"))
+
+    def processAlgorithm(self, parameters, context, feedback):  # noqa: N802
+        cfg = self.parameterAsFile(parameters, "CONFIG", context)
+        if self.parameterAsBoolean(parameters, "ESTIMATE", context):
+            res = self._call(_tasks().estimate_antenna_offset, feedback, cfg)
+            return {"MESSAGE": res["message"]}
+
+        def num(key):
+            v = parameters.get(key)
+            return None if v in (None, "") else self.parameterAsDouble(parameters, key, context)
+
+        res = self._call(
+            _tasks().set_machine, feedback, cfg,
+            self.parameterAsString(parameters, "MACHINE", context),
+            num("FORWARD"), num("RIGHT"), num("WIDTH"),
+            self.parameterAsString(parameters, "REASON", context),
+        )
+        return {"MESSAGE": res["message"]}
+
+
+class ScaleTicketAlgorithm(_Base):
+    NAME, TITLE, GROUP, GROUP_ID = "scale_ticket", "Add scale ticket (weighed load)", \
+        "Inputs", "inputs"
+    HELP = (
+        "Adds one weighed load (weighbridge, grain-cart scale or dryer intake) to the field's "
+        "scale_tickets.csv. Give the moisture if the weight is wet, and the field share if "
+        "the load also held grain from other fields. With tickets the chain reconciles the "
+        "logged mass per machine (L3) and the map becomes 'absolute'. Rerun the chain after."
+    )
+
+    def initAlgorithm(self, config=None):  # noqa: N802
+        self.addParameter(_config_param())
+        self.addParameter(QgsProcessingParameterNumber(
+            "MASS", "Mass [kg]", QgsProcessingParameterNumber.Double, minValue=1))
+        self.addParameter(QgsProcessingParameterString("MACHINE", "Machine id", optional=True))
+        self.addParameter(QgsProcessingParameterNumber(
+            "MOISTURE", "Moisture [%] (wet weight)", QgsProcessingParameterNumber.Double,
+            optional=True))
+        self.addParameter(QgsProcessingParameterNumber(
+            "SHARE", "Share of the load from this field (0-1)",
+            QgsProcessingParameterNumber.Double, optional=True))
+        self.addParameter(QgsProcessingParameterString("REF", "Ticket number", optional=True))
+        self.addParameter(QgsProcessingParameterString("DATE", "Date", optional=True))
+        self.addOutput(QgsProcessingOutputString("MESSAGE", "Summary"))
+
+    def processAlgorithm(self, parameters, context, feedback):  # noqa: N802
+        def num(key):
+            v = parameters.get(key)
+            return None if v in (None, "") else self.parameterAsDouble(parameters, key, context)
+
+        res = self._call(
+            _tasks().add_scale_ticket, feedback,
+            self.parameterAsFile(parameters, "CONFIG", context),
+            self.parameterAsDouble(parameters, "MASS", context),
+            self.parameterAsString(parameters, "MACHINE", context) or None,
+            num("MOISTURE"), num("SHARE"),
+            self.parameterAsString(parameters, "REF", context),
+            self.parameterAsString(parameters, "DATE", context),
+        )
+        return {"MESSAGE": res["message"]}
+
+ALGORITHMS = [InspectFileAlgorithm, ParcelBoundaryAlgorithm, MachineProfileAlgorithm,
+              ScaleTicketAlgorithm, RunChainAlgorithm, EstimateDelayAlgorithm, FuseAlgorithm,
               ZonesAlgorithm, WeatherAlgorithm]
