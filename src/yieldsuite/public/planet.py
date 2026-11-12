@@ -204,8 +204,14 @@ def download(order_id: str, out_dir, opener=None) -> list[str]:
         req = urllib.request.Request(
             res["location"], headers={"User-Agent": http.USER_AGENT, **headers("orders")}
         )
-        with (opener or urllib.request.urlopen)(req, timeout=600) as r:  # noqa: S310
-            (out / name).write_bytes(r.read())
+        try:
+            with (opener or urllib.request.urlopen)(req, timeout=600) as r:  # noqa: S310
+                (out / name).write_bytes(r.read())
+        except urllib.error.URLError as exc:
+            raise PlanetError(
+                f"download of {name} failed ({exc}); the links redirect to link.planet.com "
+                "(and cloud storage), which the network must allow"
+            ) from None
         saved.append(str(out / name))
     (out / "LICENCE.txt").write_text(LICENCE + "\n")
     return saved

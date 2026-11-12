@@ -62,7 +62,11 @@ yieldsuite planet download --order-id <id> --out data/planet/
 
 - Tuote `analytic_sr_udm2` (pintaheijastus + UDM2-laatumaski), rajaus lohkoon + 10 m,
   harmonisointi Sentinel-2:een.
-- **Kesto**: minuutteja. Mitattu: 20 kuvan rajattu ja harmonisoitu tilaus 18,5 min
+- **Lataus**: tulostiedostojen linkit (`api.planet.com/compute/ops/download`) ohjautuvat osoitteeseen
+  `link.planet.com`, jonka verkon pitää sallia (pilviympäristössä lisää se sallittuihin osoitteisiin).
+- **Harmonisoitu tuote on 4-kaistainen** (sininen, vihreä, punainen, NIR) myös SuperDovesta: NDRE ei
+  ole saatavilla; asetuksissa `sensor: dove4`.
+- **Kesto**: minuutteja; mitattu 12.11.2026: neljä yhden lohkon tilausta (1–2 kuvaa) 14–15 min. Mitattu: 20 kuvan rajattu ja harmonisoitu tilaus 18,5 min
   (luotu → "Manifest delivery completed"). Yhden lohkon 1–4 kuvaa tyypillisesti 5–15 min.
 - Kiintiö näkyy Planetin tilisivulla; loppunut kiintiö estää tilaukset mutta ei hakua.
 
