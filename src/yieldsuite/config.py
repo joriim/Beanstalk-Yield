@@ -164,6 +164,9 @@ class FieldYearConfig:
     crs: str = "EPSG:3067"
     grid_resolution_m: float = 20.0
     grid_origin: tuple[float, float] = (0.0, 0.0)
+    # cell size the yield is shown at: "auto" (finest repeatable), a size in metres, or "off"
+    presentation: str | float = "auto"
+    presentation_min_reliability: float = 0.8
     reference_moisture_pct: float = 14.0
     harvest_logs: list[HarvestLog] = field(default_factory=list)
     scale_tickets: Path | None = None
@@ -202,6 +205,10 @@ class FieldYearConfig:
         problems: list[str] = []
         if self.grid_resolution_m <= 0:
             problems.append("grid_resolution_m must be positive")
+        if self.presentation not in ("auto", "off"):
+            k = float(self.presentation) / self.grid_resolution_m
+            if k < 1 or abs(k - round(k)) > 1e-9:
+                problems.append("grid.presentation_m must be a multiple of grid.resolution_m")
         if not 0 <= self.reference_moisture_pct < 100:
             problems.append("reference_moisture_pct must be in [0, 100)")
         if not self.harvest_logs and not self.imagery:
@@ -220,6 +227,14 @@ def _path(base: Path, value: str | None) -> Path | None:
         return None
     p = Path(value)
     return p if p.is_absolute() else base / p
+
+
+def _presentation(v):
+    if v is False or v is None or str(v).lower() in ("off", "false", "none"):
+        return "off"
+    if str(v).lower() == "auto":
+        return "auto"
+    return float(v)
 
 
 def load_config(path: str | Path) -> FieldYearConfig:
@@ -273,6 +288,8 @@ def load_config(path: str | Path) -> FieldYearConfig:
         crs=raw.get("crs", "EPSG:3067"),
         grid_resolution_m=float(grid.get("resolution_m", 20.0)),
         grid_origin=tuple(float(v) for v in grid.get("origin", (0.0, 0.0))),
+        presentation=_presentation(grid.get("presentation_m", "auto")),
+        presentation_min_reliability=float(grid.get("min_reliability", 0.8)),
         reference_moisture_pct=float(raw.get("reference_moisture_pct", 14.0)),
         harvest_logs=logs,
         scale_tickets=_path(base, raw.get("scale_tickets")),

@@ -421,6 +421,33 @@ def _cmd_gapfill_story(args) -> int:
     return 0
 
 
+def _cmd_cell_size(args) -> int:
+    from . import present
+
+    cfg = load_config(args.config)
+    info = present.run(cfg)
+    if info is None:
+        print("error: no L4 grid yet (yieldsuite run), or grid.presentation_m is off",
+              file=sys.stderr)
+        return 1
+    if args.json:
+        import json
+
+        print(json.dumps(info, indent=2))
+        return 0
+    print(f"{'cell':>6} {'cells':>6} {'assessed':>9} {'repeat.':>8} {'+-t/ha':>7}")
+    for t in info["table"]:
+        ok = t["assessable"] and t["reliability"] is not None
+        mark = "  <-" if t["resolution_m"] == info["resolution_m"] else ""
+        rel = f"{t['reliability']:.2f}" if ok else "-"
+        se = f"{t['se_t_ha']:.2f}" if ok else "-"
+        print(f"{t['resolution_m']:>4g} m {t['cells']:>6} {100 * t['assessed_share']:>8.0f}% "
+              f"{rel:>8} {se:>7}{mark}")
+    print(f"shown at {info['resolution_m']:g} m: {info['reason']}")
+    print(f"wrote {info['file']}")
+    return 0
+
+
 def _cmd_gaps(args) -> int:
     import json
 
@@ -804,6 +831,13 @@ def build_parser() -> argparse.ArgumentParser:
     gp.add_argument("--json", action="store_true")
     gp.add_argument("--lang", choices=["fi", "en"], default="fi")
     gp.set_defaults(func=_cmd_gaps)
+
+    cz = sub.add_parser(
+        "cell-size", help="at which cell size the yield repeats; writes the map at that size"
+    )
+    cz.add_argument("config")
+    cz.add_argument("--json", action="store_true")
+    cz.set_defaults(func=_cmd_cell_size)
 
     ui = sub.add_parser("ui", help="browser UI: fields, certainty, maps, inputs, runs")
     ui.add_argument("paths", nargs="*", help="field.yaml files or folders holding them")

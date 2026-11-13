@@ -103,6 +103,9 @@ Pre-alpha. Working end to end:
 - **Timelapse and 3D**: video of the yield and quality maps filling in with the
   combine and header state, and a rotatable 3D viewer on the NLS 2 m terrain
   (`yieldsuite timelapse`, [docs/timelapse.md](docs/timelapse.md)).
+- **Repeatable cell size** ([docs/cell-size.md](docs/cell-size.md)): the yield is shown at
+  the finest cell size at which it repeats between interleaved passes
+  (`yieldsuite cell-size`).
 - **Gaps and certainty** ([docs/certainty.md](docs/certainty.md)): every run lists what is
   known, estimated, assumed or missing, grades the products and asks for what would
   improve them (`yieldsuite gaps`).

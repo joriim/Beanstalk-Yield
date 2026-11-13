@@ -80,6 +80,21 @@ def run(config: FieldYearConfig, to_level: Level, from_level: Level = Level.L1A)
     started = now_utc()
     summary = _run(config, to_level, from_level)
     if summary.completed:
+        # the yield at the cell size where it is repeatable
+        try:
+            from . import present
+
+            ps = present.run(config)
+            if ps:
+                summary.outputs["reliable"] = str(Path(config.output_dir) / ps["file"])
+                rel = "n/a" if ps["reliability"] is None else f"{ps['reliability']:.2f}"
+                summary.notes.append(
+                    f"shown at {ps['resolution_m']:g} m cells (repeatability {rel}"
+                    + ("" if ps["met_target"]
+                       else f", below the target {ps['target_reliability']:g}")
+                    + ")")
+        except Exception as exc:  # noqa: BLE001 - never hide the products behind this
+            summary.notes.append(f"FAILED cell size choice: {type(exc).__name__}: {exc}")
         # what is known, estimated, assumed and missing, and what to ask for
         try:
             from . import certainty

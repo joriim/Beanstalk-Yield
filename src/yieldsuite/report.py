@@ -877,6 +877,112 @@ def figure_summary(gdf, qa, l4_path, path, lang):
     return _save(fig, path)
 
 
+def figure_cell_size(l4_path, rel_path, info, boundary, path, lang):
+    """Working grid next to the map at the repeatable cell size, and repeatability by size."""
+    plt = _plt()
+    import rasterio
+    from rasterio.plot import plotting_extent
+
+    fi = lang == "fi"
+    with rasterio.open(l4_path) as src:
+        fine, ext_f = src.read(1, masked=True), plotting_extent(src)
+    with rasterio.open(rel_path) as src:
+        d = {n: src.read(i + 1, masked=True) for i, n in enumerate(src.descriptions)}
+        ext_c = plotting_extent(src)
+    filled = d.get("yield_filled")
+    has_fill = filled is not None and filled.count() > 0
+    maps = [(fine, ext_f, f"{info['working_resolution_m']:g} m: "
+             + ("työruudukko" if fi else "working grid")),
+            (d["yield"], ext_c,
+             f"{info['resolution_m']:g} m: " + ("mitattu" if fi else "measured"))]
+    if has_fill:
+        maps.append((filled, ext_c, f"{info['resolution_m']:g} m: "
+                     + ("mitattu ja täytetty" if fi else "measured and filled")))
+    vals = d["yield"].compressed()
+    lo, hi = np.percentile(vals, [2, 98]) if vals.size else (0, 1)
+    fig, axes = plt.subplots(1, len(maps) + 1, figsize=(5.2 * (len(maps) + 1), 4.8))
+    for ax, (a, ext, title) in zip(axes, maps, strict=False):
+        im = ax.imshow(a, extent=ext, cmap="RdYlGn", vmin=lo, vmax=hi)
+        _boundary(ax, boundary)
+        _decorate(ax)
+        ax.set_title(title)
+    fig.colorbar(im, ax=list(axes[:len(maps)]), shrink=0.7, label="t/ha")
+    ax = axes[-1]
+    rows = [t for t in info["table"] if t["reliability"] is not None]
+    ok = [t for t in rows if t["assessable"]]
+    ax.plot([t["resolution_m"] for t in rows], [t["reliability"] for t in rows], "o--",
+            color="#b9c2c9", mfc="none")
+    ax.plot([t["resolution_m"] for t in ok], [t["reliability"] for t in ok], "o-",
+            color="#2f6e9e")
+    ax.axhline(info["target_reliability"], color="k", lw=0.8, ls=":")
+    ax.axvline(info["resolution_m"], color="#c0504d", lw=1)
+    ax.set_ylim(min(0.0, min((t["reliability"] for t in rows), default=0.0)) - 0.05, 1.0)
+    ax.set_xlabel("ruutukoko (m)" if fi else "cell size (m)")
+    ax.set_ylabel("toistuvuus" if fi else "repeatability")
+    ax.set_title("toistuvuus ruutukoon mukaan" if fi else "repeatability by cell size")
+    return _save(fig, path)
+
+
+def _cell_size_html(info: dict, figs: dict, lang: str, n: int) -> tuple[str, int]:
+    e = html.escape
+    fi = lang == "fi"
+    size, work = info["resolution_m"], info["working_resolution_m"]
+    rel, se = info.get("reliability"), info.get("se_t_ha")
+    out = "<h2>" + e(f"Sato varmimmassa ruutukoossa ({size:g} m)" if fi
+                     else f"Yield at the repeatable cell size ({size:g} m)") + "</h2>"
+    if rel is None:
+        msg = (f"Ruutukokoa ei voitu arvioida (liian vähän ruutuja, joissa on kaksi ajokaistaa). "
+               f"Sato esitetään {size:g} m:n ruuduissa." if fi else
+               f"The cell size could not be assessed (too few cells with two passes). "
+               f"The yield is shown in {size:g} m cells.")
+    elif info["met_target"]:
+        msg = (f"Sato esitetään {size:g} m:n ruuduissa: se on pienin ruutukoko, jossa ruudun sato "
+               f"toistuu (toistuvuus {rel:.2f}, tavoite {info['target_reliability']:g}). Yhden "
+               f"ruudun epävarmuus on noin ±{se:.2f} t/ha." if fi else
+               f"The yield is shown in {size:g} m cells: the finest size at which the cell yield "
+               f"repeats (repeatability {rel:.2f}, target {info['target_reliability']:g}). One "
+               f"cell is uncertain by about ±{se:.2f} t/ha.")
+    else:
+        msg = (f"Mikään ruutukoko ei saavuta tavoitetta {info['target_reliability']:g}. Sato "
+               f"esitetään {size:g} m:n ruuduissa, joissa toistuvuus on suurin ({rel:.2f}, "
+               f"±{se:.2f} t/ha ruutua kohden). Lohkon sisäiset erot ovat tällä lohkolla lähellä "
+               f"mittauskohinaa: karttaa ei pidä tulkita ruutu ruudulta." if fi else
+               f"No cell size reaches the target {info['target_reliability']:g}. The yield is "
+               f"shown in {size:g} m cells, the most repeatable ({rel:.2f}, ±{se:.2f} t/ha per "
+               f"cell). Within-field differences are close to measurement noise on this field: "
+               f"do not read the map cell by cell.")
+    out += f"<p>{e(msg)}</p>"
+    if "cell_size" in figs:
+        cap = ("Vasemmalla työruudukko, sitten sama sato varmimmassa ruutukoossa. Oikealla "
+               "toistuvuus: kun joka toinen ajokaista lasketaan erikseen, kuinka hyvin kaksi "
+               "puolikasta antavat samalle ruudulle saman sadon (1 = täysin, 0 = ei lainkaan). "
+               "Harmaat pisteet: ruutukoko on ajokaistojen väliä kapeampi eikä sitä voi arvioida."
+               if fi else
+               "Left: the working grid, then the same yield at the repeatable cell size. Right: "
+               "repeatability: with every other pass counted separately, how well the two halves "
+               "give a cell the same yield (1 = fully, 0 = not at all). Grey: cell size below the "
+               "pass spacing, not assessable.")
+        out += (f"<figure>{_img(figs['cell_size'])}<figcaption><b>"
+                f"{'Kuva' if fi else 'Figure'} {n}.</b> {e(cap)}</figcaption></figure>")
+        n += 1
+    rows = [[f"{t['resolution_m']:g} m" + (" ←" if t["resolution_m"] == size else ""),
+             _fmt(t["cells"], 0), _fmt(100 * t["assessed_share"], 0, "%"),
+             _fmt(t["reliability"], 2) if t["assessable"] else "–",
+             _fmt(t["se_t_ha"], 2) if t["assessable"] else "–",
+             _fmt(t["sd_t_ha"], 2)] for t in info["table"]]
+    out += _table(
+        ["Ruutukoko", "Ruutuja", "Arvioitavissa", "Toistuvuus", "Ruudun epävarmuus (t/ha)",
+         "Ruutujen välinen hajonta (t/ha)"] if fi else
+        ["Cell size", "Cells", "Assessable", "Repeatability", "Cell uncertainty (t/ha)",
+         "Spread between cells (t/ha)"], rows)
+    out += "<p class='muted'>" + e(
+        f"Laskenta tehdään edelleen {work:g} m:n ruudukolla; esityskoko kootaan siitä massan "
+         f"säilyttäen. Tiedosto: {info['file']}." if fi else
+         f"Processing still runs on the {work:g} m grid; the shown size is aggregated from it, "
+         f"keeping the mass. File: {info['file']}.") + "</p>"
+    return out, n
+
+
 def _redact(obj):
     """File paths -> file names, for a report that may be shown to others."""
     if isinstance(obj, dict):
@@ -1133,6 +1239,18 @@ def build_report(
             except (ImportError, KeyError, ValueError):
                 pass
     extras["qa"] = qa
+    try:
+        from . import present
+
+        cs_path = out / f"{stem}_cell_size.json"
+        # written by the run; computed here only for outputs of an older version
+        cs = json.loads(cs_path.read_text()) if cs_path.exists() else present.run(config)
+        if cs and (out / cs["file"]).exists():
+            extras["cell_size"] = cs
+            figs["cell_size"] = figure_cell_size(
+                l4_path, out / cs["file"], cs, boundary, fdir / "cell_size.png", lang)
+    except Exception as exc:  # noqa: BLE001 - the report is still worth having
+        extras["cell_size_error"] = f"{type(exc).__name__}: {exc}"
     review_path = out / f"L5_{stem}_review.json"
     if review_path.exists():
         extras["review"] = json.loads(review_path.read_text())
@@ -1385,6 +1503,11 @@ def _html(
     if notes:
         parts.append(f"<h2>{e(t['findings'])}</h2><div class='notes'>{_notes_html(notes)}</div>")
     n = 1
+    if extras.get("cell_size"):
+        block, n = _cell_size_html(extras["cell_size"], figs, lang, n)
+        parts.append(block)
+    elif extras.get("cell_size_error"):
+        parts.append(f"<p class='bad'>cell size choice failed: {e(extras['cell_size_error'])}</p>")
     if extras.get("review"):
         block, n = _review_html(extras["review"], figs, lang, n)
         parts.append(block)

@@ -350,6 +350,26 @@ def assess(config, out_dir=None) -> dict:
             ask_fi="Mikä on peruslohkotunnus?", ask_en="What is the parcel id?",
             command="yieldsuite parcel <id>", affects=["filled_area", "yield_pattern"]))
 
+    cs = _load(out / f"{base}_cell_size.json")
+    if cs and cs.get("reliability") is not None:
+        rel, se, size = cs["reliability"], cs["se_t_ha"], cs["resolution_m"]
+        work = next((t for t in cs["table"] if t["resolution_m"] == cs["working_resolution_m"]), {})
+        wrel = work.get("reliability") if work.get("assessable") else None
+        wtxt_fi = f" Työruudukon {cs['working_resolution_m']:g} m ruuduissa toistuvuus on " \
+                  f"{wrel:.2f}." if wrel is not None else ""
+        wtxt_en = f" On the {cs['working_resolution_m']:g} m working grid it is {wrel:.2f}." \
+            if wrel is not None else ""
+        items.append(_item(
+            "cell_size", "Ruutukoko, jossa sato toistuu", "Cell size at which yield repeats",
+            "estimated", "high" if rel >= 0.8 else "medium" if rel >= 0.5 else "low",
+            f"Mitattu ajokaistojen puolikkaista: {size:g} m ruuduissa toistuvuus {rel:.2f}.",
+            f"Measured from interleaved passes: repeatability {rel:.2f} in {size:g} m cells.",
+            (f"Yhden {size:g} m ruudun sato on epävarma noin ±{se:.2f} t/ha.{wtxt_fi}"
+             + ("" if cs["met_target"] else " Lohkon sisäiset erot ovat lähellä mittauskohinaa.")),
+            (f"One {size:g} m cell is uncertain by about ±{se:.2f} t/ha.{wtxt_en}"
+             + ("" if cs["met_target"] else " Within-field differences are close to noise.")),
+            affects=["yield_pattern"]))
+
     products = {}
     names = {"yield_level": ("Satotaso (t/ha)", "Yield level (t/ha)"),
              "yield_pattern": ("Sadon vaihtelu mitatulla alalla", "Yield pattern, measured area"),
