@@ -154,13 +154,38 @@ def read_quality(path, fmt: str = "auto", columns: dict | None = None, sheet=Non
     return QualityResult(out, report)
 
 
+def add_xy(q: pd.DataFrame, crs: str) -> pd.DataFrame:
+    """Add the analyzer's own GPS position in the field CRS (columns ``x``, ``y``)."""
+    if "latitude" not in q or "longitude" not in q or "x" in q:
+        return q
+    from pyproj import Transformer
+
+    tr = Transformer.from_crs("EPSG:4326", crs, always_xy=True)
+    lon = q["longitude"].to_numpy(float)
+    lat = q["latitude"].to_numpy(float)
+    ok = np.isfinite(lon) & np.isfinite(lat)
+    x = np.full(len(q), np.nan)
+    y = np.full(len(q), np.nan)
+    if ok.any():
+        x[ok], y[ok] = tr.transform(lon[ok], lat[ok])
+    return q.assign(x=x, y=y)
+
+
 def align_to_records(
-    q: pd.DataFrame, rec_t: np.ndarray, delay_s: float, max_gap_s: float
+    q: pd.DataFrame,
+    rec_t: np.ndarray,
+    delay_s: float,
+    max_gap_s: float,
+    rec_xy: tuple | None = None,
+    max_dist_m: float | None = None,
 ) -> pd.DataFrame:
     """Q2: quality of the grain each record cut.
 
     Grain cut at record time t reaches the analyzer at t + delay; the nearest
-    measurement within ``max_gap_s`` of that moment is used.
+    measurement within ``max_gap_s`` of that moment is used. With ``rec_xy`` (record
+    x and y arrays) and analyzer positions in ``q`` (``add_xy``), a match is kept only if
+    the analyzer was within ``max_dist_m`` of the record at that moment: an analyzer on
+    another machine, or a wrong clock offset, is not mistaken for the record's grain.
     """
     qt = q["t"].to_numpy(float)
     target = np.asarray(rec_t, float) + delay_s
@@ -172,9 +197,19 @@ def align_to_records(
     left = np.clip(idx - 1, 0, len(qt) - 1)
     pick = np.where(np.abs(qt[left] - target) <= np.abs(qt[idx] - target), left, idx)
     ok = np.abs(qt[pick] - target) <= max_gap_s
+    gated = np.zeros(len(ok), bool)
+    dist = np.full(len(ok), np.nan)
+    if rec_xy is not None and max_dist_m is not None and "x" in q and "y" in q:
+        qx, qy = q["x"].to_numpy(float)[pick], q["y"].to_numpy(float)[pick]
+        dist = np.hypot(np.asarray(rec_xy[0], float) - qx, np.asarray(rec_xy[1], float) - qy)
+        has_pos = np.isfinite(dist)
+        gated = ok & has_pos & (dist > max_dist_m)
+        ok = ok & ~gated
     cols = [c for c in q.columns if c.endswith("_pct")]
     out = pd.DataFrame({c: np.where(ok, q[c].to_numpy(float)[pick], np.nan) for c in cols})
     out["q_index"] = np.where(ok, pick, -1)
+    out["gate_dropped"] = gated
+    out["gate_dist_m"] = dist
     return out
 
 
@@ -300,7 +335,27 @@ def run_quality(config, state: dict) -> dict:
         interval = res.report.get("median_interval_s", 5.0)
         max_gap = src.max_gap_s if src.max_gap_s is not None else 0.75 * interval + 1.0
         sel = (rec["machine_id"] == machine).to_numpy()
-        aligned = align_to_records(q, rec["t"].to_numpy()[sel], delay, max_gap)
+        q = add_xy(q, config.crs)
+        aligned = align_to_records(
+            q,
+            rec["t"].to_numpy()[sel],
+            delay,
+            max_gap,
+            (rec["x"].to_numpy()[sel], rec["y"].to_numpy()[sel]),
+            src.max_dist_m,
+        )
+        n_gate = int(aligned["gate_dropped"].sum())
+        if n_gate:
+            res.report["warnings"].append(
+                f"position gate: {n_gate} records matched in time to a reading more than "
+                f"{src.max_dist_m:g} m away were not given analyzer values (analyzer on another "
+                "machine, or a wrong clock offset)"
+            )
+        res.report["position_gate"] = {
+            "max_dist_m": src.max_dist_m,
+            "records_dropped": n_gate,
+            "records_kept": int((aligned["q_index"] >= 0).sum()),
+        }
         protein[sel] = aligned["protein_pct"].to_numpy()
         if "moisture_pct" in aligned:
             moisture[sel] = aligned["moisture_pct"].to_numpy()

@@ -230,8 +230,9 @@ def test_vendor_dry_yield_rewetted_with_corrected_moisture():
     cfg = SimpleNamespace(
         quality=SimpleNamespace(moisture="auto", sources=[SimpleNamespace(
             path="x", machine_id="m", format="auto", columns={}, sheet=None, delay_s=0.0,
-            max_gap_s=1.0)]),
+            max_gap_s=1.0, max_dist_m=None)]),
         machines={},
+        crs="EPSG:3067",
     )
     q = pd.DataFrame({"t": t, "protein_pct": 13.0, "moisture_pct": 15.0})
     cache = {"x": (SimpleNamespace(report={"median_interval_s": 2.0}), q, {"readings": n})}
@@ -313,3 +314,54 @@ def test_default_value_between_measurements_and_implausible_readings():
     assert "17.0" in info["default_values_pct"] and bad[::8].all()
     assert info["implausible_records"] == 3 and bad[[5, 6, 7]].all()
     assert bad.sum() < 0.2 * t.size
+
+
+# --- position gate: analyzer on another machine -----------------------------------
+
+
+def _gate_case():
+    from yieldsuite.quality.pipeline import add_xy
+
+    t = np.arange(1000.0, 1100.0)
+    # analyzer readings 1 Hz; positions as lat/lon of a point that moves east 1.5 m/s
+    x0, y0 = 283000.0, 6933000.0
+    from pyproj import Transformer
+
+    inv = Transformer.from_crs("EPSG:3067", "EPSG:4326", always_xy=True)
+    xs = x0 + 1.5 * (t - t[0])
+    far = (t >= 1050)  # second half: the analyzer is 60 m north of the records
+    ys = np.where(far, y0 + 60.0, y0)
+    lon, lat = inv.transform(xs, ys)
+    q = pd.DataFrame({"t": t, "protein_pct": 14.0, "latitude": lat, "longitude": lon})
+    q = add_xy(q, "EPSG:3067")
+    rec_xy = (xs, np.full(t.size, y0))
+    return q, t, rec_xy
+
+
+def test_position_gate_drops_matches_far_from_the_record():
+    from yieldsuite.quality.pipeline import align_to_records
+
+    q, t, rec_xy = _gate_case()
+    plain = align_to_records(q, t, 0.0, 1.5)
+    gated = align_to_records(q, t, 0.0, 1.5, rec_xy, 15.0)
+    assert plain["protein_pct"].notna().all() and not plain["gate_dropped"].any()
+    assert gated["protein_pct"].notna().sum() == 50 and gated["gate_dropped"].sum() == 50
+    assert gated["gate_dist_m"][:50].max() < 1.0 and gated["gate_dist_m"][50:].min() > 59
+    off = align_to_records(q, t, 0.0, 1.5, rec_xy, None)
+    assert off["protein_pct"].notna().all()
+
+
+def test_position_gate_is_skipped_without_analyzer_positions():
+    from yieldsuite.quality.pipeline import align_to_records
+
+    q, t, rec_xy = _gate_case()
+    q = q.drop(columns=["x", "y"])
+    assert align_to_records(q, t, 0.0, 1.5, rec_xy, 15.0)["protein_pct"].notna().all()
+
+
+def test_add_xy_projects_to_the_field_crs():
+    from yieldsuite.quality.pipeline import add_xy
+
+    q = pd.DataFrame({"latitude": [62.4687], "longitude": [22.7975]})
+    q = add_xy(q, "EPSG:3067")
+    assert 283000 < q["x"].iloc[0] < 284500 and 6.9e6 < q["y"].iloc[0] < 6.95e6

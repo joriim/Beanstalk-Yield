@@ -137,6 +137,10 @@ class QualitySource:
     sheet: str | int | None = None
     delay_s: float | None = None  # analyzer delay; default: the machine's tau_d
     max_gap_s: float | None = None  # default: 0.75 x measurement interval + 1 s
+    # Position gate: an analyzer reading with its own GPS position is attached to a record
+    # only if the two positions are within this distance (m). Catches an analyzer on another
+    # machine or a wrong clock offset. None switches the gate off.
+    max_dist_m: float | None = 15.0
 
 
 @dataclass

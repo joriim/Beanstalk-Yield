@@ -204,8 +204,8 @@ def interpolate_in_time(t, values, missing, max_s: float = INTERP_MAX_S) -> np.n
     return v
 
 
-def _analyzer_moisture(config, t, machine_id, cache):
-    from .pipeline import align_to_records, read_quality
+def _analyzer_moisture(config, t, machine_id, cache, xy=None):
+    from .pipeline import add_xy, align_to_records, read_quality
 
     qc = config.quality
     analyzer = np.full(len(t), np.nan)
@@ -226,10 +226,19 @@ def _analyzer_moisture(config, t, machine_id, cache):
             prof.tau_d_s if prof and prof.tau_d_s is not None else 0.0)
         interval = res.report.get("median_interval_s", 5.0)
         gap = src.max_gap_s if src.max_gap_s is not None else 0.75 * interval + 1.0
-        al = align_to_records(q, t, delay, gap)["moisture_pct"].to_numpy()
+        aligned = align_to_records(add_xy(q, config.crs), t, delay, gap, xy, src.max_dist_m)
+        al = aligned["moisture_pct"].to_numpy()
         analyzer = np.where(np.isfinite(analyzer), analyzer, al)
         matched = int(np.isfinite(al).sum())
-        reports.append({"source": str(src.path), **clean, "delay_s": delay, "matched": matched})
+        reports.append(
+            {
+                "source": str(src.path),
+                **clean,
+                "delay_s": delay,
+                "matched": matched,
+                "position_gate_dropped": int(aligned["gate_dropped"].sum()),
+            }
+        )
     return analyzer, reports
 
 
@@ -250,7 +259,8 @@ def apply(config, df: pd.DataFrame, t: np.ndarray, moisture: np.ndarray, mass_we
     used = np.where(is_dry, sensor_raw, moisture)  # what the vendor / the log used
     entered, ent = entered_values(t, used)
     sensor = np.where(entered, np.nan, used)  # measured combine moisture only
-    analyzer, reports = _analyzer_moisture(config, t, machine_id, cache)
+    xy = (df["x"].to_numpy(float), df["y"].to_numpy(float)) if "x" in df and "y" in df else None
+    analyzer, reports = _analyzer_moisture(config, t, machine_id, cache, xy)
     mode = config.quality.moisture if config.quality is not None else "off"
     new, info = (corrected_moisture(sensor, analyzer, mode) if mode != "off"
                  else (None, {"mode": "off"}))
