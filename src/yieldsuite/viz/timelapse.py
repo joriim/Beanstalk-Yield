@@ -128,33 +128,20 @@ def _analyzer_layers(config, rec: pd.DataFrame, clean: np.ndarray) -> dict[str, 
                 "no analyzer data (GrainSense) on this field",
             )
         return layers
-    from ..quality.moisture import clean_readings
-    from ..quality.pipeline import add_xy, align_to_records, read_quality
+    from ..quality.align import analyzer_for_records
 
     vals = {k: np.full(len(rec), np.nan) for k in ANALYZER_COLUMN}
     empty: set[str] = set()
     mapped: set[str] = set()
+    cache: dict = {}
     for src in qc.sources:
-        res = read_quality(src.path, src.format, src.columns, src.sheet)
+        sel = (rec["machine_id"] == src.machine_id).to_numpy()
+        al, _rep = analyzer_for_records(config, src, rec[sel], cache)
+        res = cache[f"{src.path}|{src.sheet}"]["res"]
         empty |= set(res.report.get("empty", []))
         mapped |= set(res.report.get("mapping", {}))
-        q, _ = clean_readings(res.measurements, need_moisture=False)
-        if not len(q):
+        if al is None:
             continue
-        sel = (rec["machine_id"] == src.machine_id).to_numpy()
-        prof = config.machines.get(src.machine_id)
-        delay = src.delay_s if src.delay_s is not None else (
-            prof.tau_d_s if prof and prof.tau_d_s is not None else 0.0)
-        gap = src.max_gap_s if src.max_gap_s is not None else (
-            0.75 * res.report.get("median_interval_s", 5.0) + 1.0)
-        al = align_to_records(
-            add_xy(q, config.crs),
-            rec["t"].to_numpy(float)[sel],
-            delay,
-            gap,
-            (rec["x"].to_numpy(float)[sel], rec["y"].to_numpy(float)[sel]),
-            src.max_dist_m,
-        )
         for k, col in ANALYZER_COLUMN.items():
             if col not in al:
                 continue

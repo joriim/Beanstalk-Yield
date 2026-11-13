@@ -315,48 +315,31 @@ def run_quality(config, state: dict) -> dict:
     reports = []
     all_q = []
     extra: dict[str, np.ndarray] = {}
+    cache = state.setdefault("_quality_cache", {})
     for src in qc.sources:
-        from .moisture import clean_readings
+        from .align import analyzer_for_records
 
-        res = read_quality(src.path, src.format, src.columns, src.sheet)
-        q, cleaned = clean_readings(res.measurements, need_moisture=False)
-        res.report["failed_scans_dropped"] = cleaned["dropped"]
         machine = src.machine_id
-        prof = config.machines.get(machine)
-        delay = (
-            src.delay_s
-            if src.delay_s is not None
-            else (
-                prof.tau_d_s
-                if prof and prof.tau_d_s is not None
-                else state["qa"].get("delays", {}).get(machine, {}).get("tau_d_s", 0.0)
-            )
-        )
-        interval = res.report.get("median_interval_s", 5.0)
-        max_gap = src.max_gap_s if src.max_gap_s is not None else 0.75 * interval + 1.0
         sel = (rec["machine_id"] == machine).to_numpy()
-        q = add_xy(q, config.crs)
-        aligned = align_to_records(
-            q,
-            rec["t"].to_numpy()[sel],
-            delay,
-            max_gap,
-            (rec["x"].to_numpy()[sel], rec["y"].to_numpy()[sel]),
-            src.max_dist_m,
-        )
-        n_gate = int(aligned["gate_dropped"].sum())
+        aligned, rep = analyzer_for_records(config, src, rec[sel], cache)
+        c = cache[f"{src.path}|{src.sheet}"]
+        res, q = c["res"], c["q"]
+        res.report = {**res.report, **rep, "failed_scans_dropped": rep.get("dropped", 0)}
+        res.report.setdefault("warnings", [])
+        if aligned is None:
+            reports.append(res.report)
+            continue
+        delay, max_gap = rep["delay_s"], rep["max_gap_s"]
+        n_gate = rep["position_gate"]["records_dropped"]
         if n_gate:
             res.report["warnings"].append(
                 f"position gate: {n_gate} records matched in time to a reading more than "
                 f"{src.max_dist_m:g} m away were not given analyzer values (analyzer on another "
                 "machine, or a wrong clock offset)"
             )
-        res.report["position_gate"] = {
-            "max_dist_m": src.max_dist_m,
-            "records_dropped": n_gate,
-            "records_kept": int((aligned["q_index"] >= 0).sum()),
-        }
-        protein[sel] = aligned["protein_pct"].to_numpy()
+        protein[sel] = np.where(
+            np.isfinite(protein[sel]), protein[sel], aligned["protein_pct"].to_numpy()
+        )
         if "moisture_pct" in aligned:
             moisture[sel] = aligned["moisture_pct"].to_numpy()
         for col in aligned.columns:

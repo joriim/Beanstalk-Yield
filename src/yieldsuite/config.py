@@ -135,7 +135,10 @@ class QualitySource:
     format: str = "auto"
     columns: dict[str, str] = field(default_factory=dict)  # time, protein, moisture, oil ...
     sheet: str | int | None = None
-    delay_s: float | None = None  # analyzer delay; default: the machine's tau_d
+    # Timing (see quality/align.py): analyzer time = record time + transit_s - clock_offset_s
+    clock_offset_s: float | str | None = None  # monitor clock - analyzer clock; "auto" = GPS
+    transit_s: float | None = None  # grain travel time from the header to the analyzer
+    delay_s: float | None = None  # older configs: transit_s - clock_offset_s in one number
     max_gap_s: float | None = None  # default: 0.75 x measurement interval + 1 s
     # Position gate: an analyzer reading with its own GPS position is attached to a record
     # only if the two positions are within this distance (m). Catches an analyzer on another
@@ -178,6 +181,7 @@ class FieldYearConfig:
     source_path: Path | None = None  # the YAML file this config was read from (audit)
     light_use: LightUseSettings = field(default_factory=lambda: _light_use_default())
     harvest_check: HarvestCheckSettings = field(default_factory=lambda: _harvest_check(None))
+    strict: bool = False  # a failed optional step (light use, review, ...) stops the run
 
     @property
     def sentinel2(self) -> ImagerySource | None:
@@ -285,6 +289,7 @@ def load_config(path: str | Path) -> FieldYearConfig:
         source_path=path.resolve(),
         light_use=_light_use(raw.get("light_use")),
         harvest_check=_harvest_check((raw.get("review") or {}).get("harvest_check")),
+        strict=bool(raw.get("strict", False)),
     )
 
 
@@ -322,9 +327,9 @@ def _light_use_default():
 def _light_use(raw: dict | None):
     from .l5.lightuse import LightUseSettings
 
-    if not raw:
-        return LightUseSettings()
-    return LightUseSettings(**{"enabled": True, **raw})
+    if raw is False:
+        return LightUseSettings(enabled=False)
+    return LightUseSettings(**{"enabled": True, **(raw or {})})
 
 
 def _harvest_check(raw):

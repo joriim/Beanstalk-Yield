@@ -151,7 +151,14 @@ def run_sentinel2_fusion(
     result.model_card["record_corrections"] = corrections
     result.model_card["local_imagery"] = local_reports
     lightuse_raster = None
-    if config.light_use.enabled:
+    has_sowing = config.crop is not None and bool(config.crop.sowing_date)
+    result.model_card["prediction_model"] = "image"
+    if config.light_use.enabled and not has_sowing:
+        result.model_card["prediction_note"] = (
+            "crop.sowing_date is missing: IPAR/GPP/RUE need it; the statistical image "
+            "model predicts and fills instead"
+        )
+    if config.light_use.enabled and has_sowing:
         try:
             lu_card, lu_bands = apply_light_use(config, grid, l4, result, features, records)
             tbl = lu_card.pop("_season_table", None)
@@ -168,6 +175,7 @@ def run_sentinel2_fusion(
                 except ImportError:
                     pass
             result.model_card["light_use"] = lu_card
+            result.model_card["prediction_model"] = lu_card["fill_used"]
             if write_raster:
                 from ..l4.io import write_cog
 
@@ -175,15 +183,16 @@ def run_sentinel2_fusion(
                     lu_bands, grid, config.crs, out / f"{stem}_lightuse.tif", names=tuple(lu_bands)
                 )
                 lu_card["raster"] = str(lightuse_raster)
-        except Exception as exc:  # noqa: BLE001 - reported in the model card, L5 stays usable
-            result.model_card["light_use_error"] = str(exc)
+        except Exception as exc:  # noqa: BLE001 - L5 stays usable, but the failure is loud
+            _problem(config, result, "light_use", exc,
+                     "light-use models not applied: the statistical image model was used")
     if records is not None:
         try:
             result.model_card["review"] = run_review(
                 config, grid, l4, result, records, field_mask, lightuse_raster, out, stem
             )
-        except Exception as exc:  # noqa: BLE001 - the review must not break L5
-            result.model_card["review_error"] = str(exc)
+        except Exception as exc:  # noqa: BLE001 - L5 stays usable, but the failure is loud
+            _problem(config, result, "review", exc, "critical review missing")
     card_path = out / f"{stem}_model_card.json"
     card_path.write_text(json.dumps(result.model_card, indent=2, default=str))
 
@@ -197,7 +206,7 @@ def run_sentinel2_fusion(
             result.model_card["agroclimate"] = agro["summary"]
             result.model_card["agroclimate_files"] = write_agroclimate(config, agro, grid)
         except Exception as exc:  # noqa: BLE001
-            result.model_card["agroclimate_error"] = str(exc)
+            _problem(config, result, "agroclimate", exc, "agroclimate summary missing")
         card_path.write_text(json.dumps(result.model_card, indent=2, default=str))
 
     raster = None
@@ -207,6 +216,21 @@ def run_sentinel2_fusion(
 
         raster = write_cog(result.bands, grid, config.crs, out / f"{stem}.tif", names=L5_BANDS)
     return L5Outputs(result, raster, card_path, features_path)
+
+
+def _problem(config, result, step: str, exc: Exception, consequence: str) -> None:
+    """A failed optional step: recorded in the model card (``problems``), printed, and
+    raised when ``strict`` is set (config ``strict: true`` or YIELDSUITE_STRICT=1)."""
+    import os
+    import sys
+
+    if getattr(config, "strict", False) or os.environ.get("YIELDSUITE_STRICT") == "1":
+        raise exc
+    err = f"{type(exc).__name__}: {exc}"[:400]
+    entry = {"step": step, "error": err, "consequence": consequence}
+    result.model_card.setdefault("problems", []).append(entry)
+    result.model_card[f"{step}_error"] = str(exc)
+    print(f"WARNING: L5 step '{step}' failed: {entry['error']} -> {consequence}", file=sys.stderr)
 
 
 def _record_corrections(l4, grid, features, records, polygons, method, min_valid_share) -> dict:
@@ -281,7 +305,14 @@ def apply_light_use(config: FieldYearConfig, grid: Grid, l4: dict, result, featu
     from ..weather.run import agro_settings, field_location, get_weather
     from .fuse import cell_centres
     from .gapfill import SOURCE_FILLED, gap_fill
-    from .lightuse import choose_fill, clear_sky_par, light_use, ratio_cv
+    from .lightuse import (
+        LIGHT_MODELS,
+        choose_fill,
+        clear_sky_par,
+        compare_models,
+        light_use,
+        predict,
+    )
 
     s = config.light_use
     if config.crop is None or not config.crop.sowing_date:
@@ -322,12 +353,9 @@ def apply_light_use(config: FieldYearConfig, grid: Grid, l4: dict, result, featu
     if "flagged_share" in l4:
         reliable &= ~(np.asarray(l4["flagged_share"], float).ravel() > 0.5)
     rows, cols, xy = cell_centres(grid)
-    cands = {
-        "ipar": ratio_cv(y4, ipar, reliable, rows, cols, s.cv_block_cells),
-        "gpp": ratio_cv(y4, gpp, reliable, rows, cols, s.cv_block_cells),
-    }
+    cands = compare_models(y4, ipar, gpp, reliable, rows, cols, xy, s)
     image_cv = result.model_card.get("fit", {}).get("cv_rmse")
-    choice, reason = choose_fill(image_cv, cands, s)
+    choice, reason, clear = choose_fill(image_cv, cands, s)
 
     bands = result.bands
     shape = (grid.ny, grid.nx)
@@ -335,25 +363,33 @@ def apply_light_use(config: FieldYearConfig, grid: Grid, l4: dict, result, featu
     out_y = bands["yield"].ravel().copy()
     replaced = 0
     lu_pred = np.full(n, np.nan)
-    if choice in ("ipar", "gpp"):
-        x = ipar if choice == "ipar" else gpp
-        c = cands[choice]
-        lu_pred = c["ratio"] * x
+    if choice in LIGHT_MODELS:
+        lu_pred = predict(choice, y4, ipar, gpp, reliable, xy, s)
         filled = gap_fill(
             y4,
             lu_pred,
             reliable & np.isfinite(lu_pred),
             xy,
-            c["cv_rmse"],
+            cands[choice]["cv_rmse"],
             grid.resolution,
             residual="kriging",
         )
-        target = (src == SOURCE_FILLED) & np.isfinite(filled["yield"])
+        # the light-use model replaces the image model: prediction, fill and uncertainty
+        target = src == SOURCE_FILLED
         out_y[target] = filled["yield"][target]
         sigma = bands["sigma"].ravel().copy()
         sigma[target] = filled["sigma"][target]
+        fm = np.isfinite(bands["prediction"].ravel()) | np.isfinite(bands["yield"].ravel())
+        newly = fm & ~np.isfinite(bands["yield"].ravel()) & np.isfinite(filled["yield"])
+        out_y[newly] = filled["yield"][newly]
+        sigma[newly] = filled["sigma"][newly]
+        src = src.copy()
+        src[newly] = SOURCE_FILLED
+        bands["source"] = src.reshape(shape)
         bands["sigma"] = sigma.reshape(shape)
-        replaced = int(target.sum())
+        bands["image_prediction"] = bands["prediction"].copy()
+        bands["prediction"] = np.where(fm, lu_pred, np.nan).reshape(shape)
+        replaced = int(target.sum() + newly.sum())
         bands["yield"] = out_y.reshape(shape)
         with np.errstate(invalid="ignore"):
             bands["relative_yield"] = (100.0 * out_y / np.nanmean(out_y)).reshape(shape)
@@ -376,6 +412,8 @@ def apply_light_use(config: FieldYearConfig, grid: Grid, l4: dict, result, featu
         "fill_candidates": {"image": {"cv_rmse": image_cv}, **cands},
         "fill_used": choice,
         "fill_reason": reason,
+        "clear_winner": clear,
+        "prediction_model": choice,
         "cells_refilled": replaced,
         "note": "RUE here is grain (at reference moisture) per MJ intercepted PAR; "
         "sowing date and eps scale IPAR/GPP but not the ratio-based fill.",
@@ -417,7 +455,7 @@ def run_review(config, grid, l4, result, records, field_mask, lightuse_raster, o
     lu = result.model_card.get("light_use", {})
     pred = result.bands["prediction"]
     ref = "image model"
-    if lu.get("fill_used") in ("ipar", "gpp") and lightuse_raster is not None:
+    if lu.get("fill_used") in ("ipar", "gpp", "rue") and lightuse_raster is not None:
         from ..l4.io import read_bands
 
         b, _, _ = read_bands(lightuse_raster, require_yield=False)

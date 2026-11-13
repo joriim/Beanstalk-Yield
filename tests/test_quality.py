@@ -235,9 +235,10 @@ def test_vendor_dry_yield_rewetted_with_corrected_moisture():
         crs="EPSG:3067",
     )
     q = pd.DataFrame({"t": t, "protein_pct": 13.0, "moisture_pct": 15.0})
-    cache = {"x": (SimpleNamespace(report={"median_interval_s": 2.0}), q, {"readings": n})}
+    res = SimpleNamespace(report={"median_interval_s": 2.0})
+    cache = {"x|None": {"res": res, "q": q, "clean": {"readings": n, "dropped": 0}}}
+    df["t"] = t
     dry = np.full(n, 1.0)  # kg/s at the vendor's 14 %, from a combine reading 12 %
-    cache = {"x|None": cache["x"]}
     mc, mass, info, _ = qm.apply(cfg, df, t, np.full(n, 14.0), dry, "m", cache)
     assert info["vendor_dry_rewetted"] == n and np.allclose(mc, 15.0, atol=0.15)
     # wet mass = 1 x 86 / (100 - sensor); at 14 % with the corrected moisture
@@ -365,3 +366,30 @@ def test_add_xy_projects_to_the_field_crs():
     q = pd.DataFrame({"latitude": [62.4687], "longitude": [22.7975]})
     q = add_xy(q, "EPSG:3067")
     assert 283000 < q["x"].iloc[0] < 284500 and 6.9e6 < q["y"].iloc[0] < 6.95e6
+
+
+# --- timing: clock offset and transit time ----------------------------------------
+
+
+def test_clock_offset_from_positions_and_timing():
+    from types import SimpleNamespace
+
+    from yieldsuite.quality.align import clock_offset_from_positions, timing
+
+    t = np.arange(0.0, 600.0)
+    x, y = 1.5 * t, 5 * np.sin(t / 40)
+    # the analyzer's clock is 21 s behind; a third of its readings are on another machine
+    qt = t[50:500] - 21.0
+    qx, qy = x[50:500].copy(), y[50:500].copy()
+    qy[:150] += 80.0
+    q = pd.DataFrame({"t": qt, "x": qx, "y": qy, "protein_pct": 13.0})
+    est = clock_offset_from_positions(q, t, x, y)
+    assert est["clock_offset_s"] == 21.0 and est["sharp"] and est["matched"] == 300
+    assert est["share_on_track"] == pytest.approx(300 / 450)
+    src = SimpleNamespace(clock_offset_s="auto", transit_s=8.0, delay_s=None)
+    tm = timing(src, None, q, (t, x, y))
+    assert tm["delay_s"] == -13.0 and tm["clock_source"] == "estimated from positions"
+    old = timing(SimpleNamespace(clock_offset_s=None, transit_s=None, delay_s=-20.0), None)
+    assert old["delay_s"] == -20.0 and "not separated" in old["clock_source"]
+    none = clock_offset_from_positions(q.drop(columns=["x", "y"]), t, x, y)
+    assert none["clock_offset_s"] is None

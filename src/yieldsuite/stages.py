@@ -546,6 +546,17 @@ def stage_fusion(config: FieldYearConfig, state: dict) -> None:
             f"image suggests tau_d {shift['suggested_extra_delay_s']:+g} s: check the "
             "machine profile and re-run"
         )
+    card = res.result.model_card
+    lu = card.get("light_use") or {}
+    if lu:
+        notes.append(
+            f"prediction and gap fill: {lu['fill_used']}"
+            + ("" if lu.get("clear_winner", True) else " (no clear winner: you can choose)")
+        )
+    elif card.get("prediction_note"):
+        notes.append(card["prediction_note"])
+    for pr in card.get("problems", []):
+        notes.append(f"FAILED {pr['step']}: {pr['error']} ({pr['consequence']})")
     stripes = rc.get("pass_stripes", {})
     if stripes.get("applied"):
         notes.append(f"pass stripes levelled (sigma_b {stripes['sigma_b']:.1%})")

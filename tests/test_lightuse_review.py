@@ -12,7 +12,6 @@ from yieldsuite.l5.lightuse import (
     choose_fill,
     clear_sky_par,
     light_use,
-    ratio_cv,
     temperature_scalar,
 )
 
@@ -41,18 +40,36 @@ def test_clear_sky_par_longer_days_in_june():
     assert p.iloc[1] > 2 * p.iloc[0] > 0
 
 
-def test_ratio_cv_and_fill_choice():
+def test_light_models_compared_and_chosen():
+    from yieldsuite.l5.lightuse import compare_models, local_ratio, predict
+
     rng = np.random.default_rng(0)
     rows, cols = np.divmod(np.arange(400), 20)
-    x = 800 + 200 * np.sin(cols / 4)
-    y = 0.012 * x + rng.normal(0, 0.2, x.size)
-    c = ratio_cv(y, x, np.ones(400, bool), rows, cols, block=5)
-    assert abs(c["ratio"] - 0.012) < 5e-4 and c["cv_rmse"] < 0.3 and c["corr"] > 0.9
-    name, why = choose_fill(1.0, {"ipar": c}, S)
-    assert name == "ipar" and "beats" in why
-    assert choose_fill(0.1, {"ipar": c}, S)[0] == "image"
-    assert choose_fill(1.0, {"ipar": c}, LightUseSettings(fill="image"))[0] == "image"
-
+    xy = np.c_[cols * 10.0, rows * 10.0]
+    ipar = 800 + 200 * np.sin(cols / 4)
+    train = np.ones(400, bool)
+    # (a) yield follows light with one RUE: ipar and gpp fit, rue adds nothing
+    y = 0.012 * ipar + rng.normal(0, 0.2, 400)
+    c = compare_models(y, ipar, ipar * 1.7, train, rows, cols, xy, S)
+    assert abs(c["ipar"]["ratio"] - 0.012) < 5e-4 and c["ipar"]["cv_rmse"] < 0.3
+    assert c["ipar"]["cv_rmse"] < 0.5 * c["mean"]["cv_rmse"]
+    name, why, clear = choose_fill(None, c, S)
+    assert name == "gpp" and not clear and "no clear winner" in why  # preferred among equals
+    assert choose_fill(None, c, LightUseSettings(prefer="ipar"))[0] == "ipar"
+    # (b) RUE differs between the two halves of the field: the local RUE wins clearly
+    rue = np.where(cols < 10, 0.008, 0.014)
+    y2 = rue * ipar + rng.normal(0, 0.2, 400)
+    c2 = compare_models(y2, ipar, ipar * 1.7, train, rows, cols, xy, S)
+    name, why, clear = choose_fill(None, c2, S)
+    assert name == "rue" and clear and c2["rue"]["cv_rmse"] < 0.7 * c2["ipar"]["cv_rmse"]
+    lr = local_ratio(y2, ipar, train, xy, 30.0)
+    assert abs(lr[cols < 5].mean() - 0.008) < 1e-3 and abs(lr[cols > 14].mean() - 0.014) < 1e-3
+    pred = predict("rue", y2, ipar, ipar, train & (rows > 2), xy, S)
+    assert np.isfinite(pred).all()  # cells without training data still get a value
+    # the user's choice wins; the image model stays available
+    assert choose_fill(1.0, c2, LightUseSettings(fill="ipar"))[:1] == ("ipar",)
+    assert choose_fill(1.0, c2, LightUseSettings(fill="image"))[0] == "image"
+    assert choose_fill(1.0, {"ipar": {"cv_rmse": None}}, S)[0] == "image"
 
 def _records(grid, rng, drift=0.0, deficit_box=None):
     """Clean records on a 30 x 30 m grid of 10 m cells, passes along x."""

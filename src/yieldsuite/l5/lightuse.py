@@ -12,12 +12,22 @@ f(T) is a trapezoid: 0 below ``t_min``, 1 between ``t_opt_low`` and
 ``t_opt_high``, 0 above ``t_max``. ``eps`` (g C per MJ APAR) sets the GPP
 level only; the fill below uses ratios, so it does not change filled yields.
 
-Gap filling: on reliable cells, the yield per unit of light (RUE_y = Y / IPAR,
-or Y / GPP) varies far less than yield itself. Its field median times the
-cell's IPAR (or GPP) predicts the yield of an empty cell; kriging of the
-residuals then adds what the neighbours know. The predictor (image model,
-IPAR or GPP) with the lowest block cross-validation error fills the gaps;
-the comparison is written to the model card.
+Yield prediction and gap filling use light, not a statistical image model. Three
+predictors, all fitted on the reliable measured cells:
+
+- ``ipar``: Y = RUE x IPAR with one field RUE (median of Y / IPAR): yield follows
+  intercepted light.
+- ``gpp``: Y = k x GPP: as above with the daily temperature limit f(T), so light
+  caught on cold days counts less.
+- ``rue``: Y = RUE(x) x IPAR with a RUE that varies over the field: the
+  distance-weighted RUE of the measured cells around each cell (Gaussian, sigma
+  ``rue_sigma_m``). It keeps what light cannot see (soil, water, lodging).
+
+Kriging of the residuals then adds what the neighbours know. ``fill: auto`` compares
+them in block cross-validation, next to the field mean (no model) and, for reference,
+the statistical image model, and uses the best of the three. When the best two are
+within ``min_gain`` there is no clear winner: ``prefer`` is used and the model card
+says so, so the user can pick (``fill: ipar | gpp | rue | image``).
 
 PAR comes from ERA5 (Open-Meteo). When no weather is available, a clear-sky
 PAR (extraterrestrial radiation x 0.75 x PAR fraction) is used and flagged:
@@ -39,8 +49,10 @@ from ..weather.rue import _daily_fapar, fapar_from_ndvi
 
 @dataclass
 class LightUseSettings:
-    enabled: bool = False
-    fill: str = "auto"  # auto | image | ipar | gpp
+    enabled: bool = True  # needs crop.sowing_date; without it the image model is used
+    fill: str = "auto"  # auto (best of ipar, gpp, rue) | ipar | gpp | rue | image
+    prefer: str = "gpp"  # used by auto when there is no clear winner
+    rue_sigma_m: float = 30.0  # smoothing distance of the local RUE
     eps_g_c_mj: float = 1.8  # light-use efficiency for GPP (C3 crops ~1.5-2.5)
     t_min_c: float = 0.0
     t_opt_low_c: float = 15.0
@@ -48,7 +60,7 @@ class LightUseSettings:
     t_max_c: float = 35.0
     par_fraction: float = 0.48
     cv_block_cells: int = 5
-    min_gain: float = 0.02  # a light-use fill must beat the image model by 2 % CV RMSE
+    min_gain: float = 0.02  # CV RMSE difference (share) below which there is no clear winner
 
 
 def temperature_scalar(t, s: LightUseSettings) -> np.ndarray:
@@ -132,15 +144,104 @@ def ratio_cv(y, x, train, rows, cols, block: int) -> dict:
     }
 
 
-def choose_fill(image_cv_rmse, candidates: dict, s: LightUseSettings) -> tuple[str, str]:
-    """Pick the gap-fill predictor; returns (name, reason)."""
-    if s.fill in ("image", "ipar", "gpp"):
-        return s.fill, "set in the config"
-    best, best_rmse = "image", image_cv_rmse
-    for name, c in candidates.items():
-        r = c.get("cv_rmse")
-        if r is not None and best_rmse is not None and r < best_rmse * (1 - s.min_gain):
-            best, best_rmse = name, r
-    if best == "image":
-        return best, "the image model has the lowest block-CV error"
-    return best, f"block-CV RMSE {best_rmse:.2f} t/ha beats the image model ({image_cv_rmse:.2f})"
+LIGHT_MODELS = ("ipar", "gpp", "rue")
+
+
+def local_ratio(y, x, fit, xy, sigma_m: float, targets=None) -> np.ndarray:
+    """Distance-weighted Y / X of the ``fit`` cells around every cell (or ``targets``).
+
+    Cells with no fit cell within 3 sigma get the median ratio of the fit cells.
+    """
+    from scipy.spatial import cKDTree
+
+    y, x = np.asarray(y, float), np.asarray(x, float)
+    fit = np.asarray(fit, bool) & np.isfinite(y) & np.isfinite(x) & (x > 0)
+    out = np.full(y.shape, np.nan)
+    if fit.sum() < 3:
+        return out
+    r = y[fit] / x[fit]
+    lo, hi = np.percentile(r, [2, 98])
+    r = np.clip(r, lo, hi)  # single cells must not dominate their surroundings
+    tgt = np.ones(y.shape, bool) if targets is None else np.asarray(targets, bool)
+    tree = cKDTree(xy[fit])
+    idx = np.flatnonzero(tgt)
+    k = min(64, int(fit.sum()))
+    d, j = tree.query(xy[idx], k=k, distance_upper_bound=3 * sigma_m)
+    d, j = d.reshape(len(idx), -1), j.reshape(len(idx), -1)
+    ok = np.isfinite(d)
+    w = np.where(ok, np.exp(-0.5 * (d / sigma_m) ** 2), 0.0)
+    rr = np.where(ok, r[np.where(ok, j, 0)], 0.0)
+    ws = w.sum(axis=1)
+    out[idx] = np.where(ws > 0, (w * rr).sum(axis=1) / np.where(ws > 0, ws, 1), np.median(r))
+    return out
+
+
+def predict(name: str, y, ipar, gpp, fit, xy, s: LightUseSettings, targets=None) -> np.ndarray:
+    """Yield predicted by one light-use model fitted on the ``fit`` cells."""
+    x = gpp if name == "gpp" else ipar
+    x = np.asarray(x, float)
+    if name == "rue":
+        return local_ratio(y, x, fit, xy, s.rue_sigma_m, targets) * x
+    ok = np.asarray(fit, bool) & np.isfinite(y) & np.isfinite(x) & (x > 0)
+    if ok.sum() < 3:
+        return np.full(x.shape, np.nan)
+    return float(np.median(np.asarray(y, float)[ok] / x[ok])) * x
+
+
+def compare_models(y, ipar, gpp, train, rows, cols, xy, s: LightUseSettings) -> dict:
+    """Block cross-validation of the light-use models and of the field mean."""
+    y = np.asarray(y, float)
+    out = {}
+    b = _blocks(rows, cols, s.cv_block_cells)
+    for name in (*LIGHT_MODELS, "mean"):
+        x = gpp if name == "gpp" else ipar
+        ok = np.asarray(train, bool) & np.isfinite(y) & np.isfinite(x) & (np.asarray(x) > 0)
+        if ok.sum() < 20:
+            out[name] = {"cv_rmse": None, "n": int(ok.sum())}
+            continue
+        err = np.full(y.shape, np.nan)
+        for blk in np.unique(b[ok]):
+            test, fit = ok & (b == blk), ok & (b != blk)
+            if fit.sum() < 10:
+                continue
+            if name == "mean":
+                err[test] = y[test] - y[fit].mean()
+            else:
+                err[test] = y[test] - predict(name, y, ipar, gpp, fit, xy, s, test)[test]
+        e = err[np.isfinite(err)]
+        res = {
+            "cv_rmse": float(np.sqrt(np.mean(e**2))) if e.size else None,
+            "cv_bias": float(np.mean(e)) if e.size else None,
+            "n": int(ok.sum()),
+        }
+        if name != "mean":
+            xx = np.asarray(x, float)
+            res["ratio"] = float(np.median(y[ok] / xx[ok]))
+            res["corr"] = float(np.corrcoef(y[ok], xx[ok])[0, 1]) if name != "rue" else None
+        out[name] = res
+    return out
+
+
+def choose_fill(image_cv_rmse, candidates: dict, s: LightUseSettings) -> tuple[str, str, bool]:
+    """Pick the predictor; returns (name, reason, clear_winner)."""
+    if s.fill in (*LIGHT_MODELS, "image"):
+        return s.fill, "chosen by the user (light_use.fill)", True
+    ranked = sorted(
+        ((c["cv_rmse"], n) for n, c in candidates.items()
+         if n in LIGHT_MODELS and c.get("cv_rmse") is not None)
+    )
+    if not ranked:
+        return "image", "light-use models could not be cross-validated; image model used", True
+    best_rmse, best = ranked[0]
+    if len(ranked) > 1 and ranked[1][0] - best_rmse < s.min_gain * best_rmse:
+        close = [n for r, n in ranked if r - best_rmse < s.min_gain * best_rmse]
+        pick = s.prefer if s.prefer in close else best
+        return (
+            pick,
+            f"no clear winner: {', '.join(close)} are within {100 * s.min_gain:.0f} % of each "
+            f"other in block CV (best {best_rmse:.2f} t/ha); '{pick}' used "
+            f"({'the preferred model' if pick == s.prefer else 'lowest error'}). "
+            "Set light_use.fill to choose",
+            False,
+        )
+    return best, f"lowest block-CV error of the light-use models ({best_rmse:.2f} t/ha)", True
