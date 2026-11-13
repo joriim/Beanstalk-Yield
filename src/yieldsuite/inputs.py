@@ -411,3 +411,49 @@ def ticket_summary(config_path: str | Path, reference_pct: float | None = None) 
         mass_ref_kg=("mass_ref_kg", "sum"),
     )
     return g.reset_index()
+
+
+# --- single settings (used by the browser UI) -----------------------------------------
+
+SETTINGS = {
+    "light_use.fill": lambda v: v if v in ("auto", "ipar", "gpp", "rue", "image") else None,
+    "light_use.prefer": lambda v: v if v in ("ipar", "gpp", "rue") else None,
+    "crop.sowing_date": lambda v: v if _is_date(v) else None,
+    "crop.sowing_date_assumed": lambda v: bool(v) if isinstance(v, bool) else None,
+}
+
+
+def _is_date(v) -> bool:
+    from datetime import date
+
+    try:
+        date.fromisoformat(str(v))
+        return True
+    except ValueError:
+        return False
+
+
+def set_setting(config_path, key: str, value, reason: str = "", actor: str | None = None) -> dict:
+    """Set one whitelisted setting (``SETTINGS``) in the field YAML; logged like the rest."""
+    if key not in SETTINGS:
+        raise InputError(f"setting {key!r} cannot be changed here; allowed: {sorted(SETTINGS)}")
+    checked = SETTINGS[key](value)
+    if checked is None:
+        raise InputError(f"value {value!r} is not valid for {key}")
+    path = Path(config_path)
+    y = _roundtrip()
+    data = y.load(path.read_text()) or {}
+    section, name = key.split(".")
+    if not isinstance(data.get(section), dict):
+        from ruamel.yaml.comments import CommentedMap
+
+        data[section] = CommentedMap()
+    old = data[section].get(name)
+    data[section][name] = checked
+    text = _dump(y, data)
+    got = (yaml.safe_load(text) or {}).get(section, {}).get(name)
+    if str(got) != str(checked):
+        raise InputError(f"edit did not read back ({key}: {got!r}); file unchanged")
+    path.write_text(text)
+    log_change(path, "set_setting", _actor(actor), reason, key=key, old=old, new=checked)
+    return {"key": key, "old": old, "new": checked}

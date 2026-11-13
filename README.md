@@ -106,6 +106,8 @@ Pre-alpha. Working end to end:
 - **Gaps and certainty** ([docs/certainty.md](docs/certainty.md)): every run lists what is
   known, estimated, assumed or missing, grades the products and asks for what would
   improve them (`yieldsuite gaps`).
+- **Browser UI** ([docs/ui.md](docs/ui.md)): `yieldsuite ui` shows the fields, what to
+  trust, the open questions with forms for the answers, maps, the 3D viewer and runs.
 - **QGIS plugin** ([qgis_plugin/README.md](qgis_plugin/README.md)): nine
   Processing algorithms (inspect, parcel boundary, machine profile / antenna
   offset, scale ticket, run chain, delay, fusion, zones, weather)

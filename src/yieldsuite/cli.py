@@ -444,6 +444,27 @@ def _cmd_gaps(args) -> int:
     return 0
 
 
+def _cmd_ui(args) -> int:
+    from .ui.server import serve
+
+    try:
+        server, app = serve(args.paths or ["."], args.host, args.port, redact=not args.names)
+    except (ValueError, OSError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    host, port = server.server_address[:2]
+    print(f"{len(app.configs)} field(s): {', '.join(app.configs)}")
+    print(f"open http://{host}:{port}/   (Ctrl+C stops)")
+    if args.host not in ("127.0.0.1", "localhost"):
+        print("warning: the UI has no accounts; anyone who can reach this address can use it",
+              file=sys.stderr)
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    return 0
+
+
 def _cmd_s2_search(args) -> int:
     from .l4.io import read_bands
     from .public.field import field_bbox_wgs84
@@ -783,6 +804,13 @@ def build_parser() -> argparse.ArgumentParser:
     gp.add_argument("--json", action="store_true")
     gp.add_argument("--lang", choices=["fi", "en"], default="fi")
     gp.set_defaults(func=_cmd_gaps)
+
+    ui = sub.add_parser("ui", help="browser UI: fields, certainty, maps, inputs, runs")
+    ui.add_argument("paths", nargs="*", help="field.yaml files or folders holding them")
+    ui.add_argument("--host", default="127.0.0.1")
+    ui.add_argument("--port", type=int, default=8765)
+    ui.add_argument("--names", action="store_true", help="reports without --redact")
+    ui.set_defaults(func=_cmd_ui)
 
     s2 = sub.add_parser("s2-search", help="list Sentinel-2 scenes over the field (STAC)")
     s2.add_argument("config")
