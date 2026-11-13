@@ -92,6 +92,29 @@ readings and the change of the mass at reference moisture are in the L4 QA
 (`analyzer_moisture`). The analyzer's own moisture is not lab-checked by the
 suite; a lab moisture sample makes the correction traceable.
 
+## Position gate
+
+GrainSense exports carry the analyzer's own GPS position. A reading is attached to a
+record only if the two positions are within `max_dist_m` (default 15 m) at the matched
+moment:
+
+```yaml
+quality:
+  sources:
+    - path: session.xlsx
+      machine_id: combine-a
+      delay_s: -20        # clock offset of the analyzer (see yieldsuite docs); not the flow delay
+      max_dist_m: 15      # null switches the gate off
+```
+
+Matching by time alone puts a reading on the wrong place when the analyzer is on another
+machine or the clock offset is wrong: on one field 245 of 395 matched records got a reading
+whose own position was more than 15 m away (164 more than 50 m). The number of dropped
+records is in the Q4 QA (`position_gate`) and in the warnings. The same gate applies to
+the moisture correction and to the protein, oil and moisture maps in the timelapse. The
+clock offset itself (here 21-22 s) is best read from the positions: the offset with the
+smallest median distance between the analyzer track and the yield log.
+
 ## Entered combine moisture
 
 A combine moisture sensor that is not reading (measuring cell empty, start of a

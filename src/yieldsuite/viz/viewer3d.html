@@ -5,231 +5,234 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>__TITLE__</title>
 <style>
-:root{--bg:#dfe7ee;--panel:rgba(255,255,255,.92);--text:#1f2933;--muted:#5f6b76;--accent:#2b8a3e;--line:#c9d3dc}
-@media (prefers-color-scheme:dark){:root{--bg:#141a20;--panel:rgba(28,34,41,.92);--text:#e6edf3;--muted:#9aa7b3;--accent:#51cf66;--line:#38434e}}
+:root{--bg:#dfe7ee;--panel:rgba(255,255,255,.93);--text:#1f2933;--muted:#5f6b76;--accent:#2b8a3e;--line:#c9d3dc}
+@media (prefers-color-scheme:dark){:root{--bg:#141a20;--panel:rgba(28,34,41,.93);--text:#e6edf3;--muted:#9aa7b3;--accent:#51cf66;--line:#38434e}}
 html,body{margin:0;height:100%;background:var(--bg);color:var(--text);font:14px/1.4 system-ui,-apple-system,"Segoe UI",sans-serif;overflow:hidden}
 #view{position:fixed;inset:0}
-#panel{position:fixed;top:12px;left:12px;width:300px;max-width:calc(100vw - 24px);background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px 14px;box-shadow:0 4px 18px rgba(0,0,0,.15);backdrop-filter:blur(6px)}
+#labels{position:fixed;inset:0;pointer-events:none;overflow:hidden}
+.tl{position:absolute;transform:translate(-50%,-100%);background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:2px 10px;font-size:13px;font-weight:600;white-space:nowrap;pointer-events:auto;cursor:pointer}
+.tl:hover{border-color:var(--accent)}
+#panel{position:fixed;top:12px;left:12px;width:318px;max-width:calc(100vw - 24px);max-height:calc(100vh - 24px);overflow:auto;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px 14px;box-shadow:0 4px 18px rgba(0,0,0,.15);backdrop-filter:blur(6px)}
 #panel h1{font-size:15px;margin:0 0 2px}
 #clock{font-size:20px;font-variant-numeric:tabular-nums;margin:4px 0 8px}
 .row{display:flex;align-items:center;gap:8px;margin:6px 0}
 .row label{flex:0 0 96px;color:var(--muted);font-size:12px}
 .row input[type=range],.row select{flex:1;min-width:0}
-button{font:inherit;border:1px solid var(--line);background:var(--accent);color:#fff;border-radius:6px;padding:5px 12px;cursor:pointer}
+button{font:inherit;border:1px solid var(--line);background:var(--accent);color:#fff;border-radius:6px;padding:4px 10px;cursor:pointer}
 button.sec{background:transparent;color:var(--text)}
-#legend{margin-top:8px}
-#legend canvas{width:100%;height:12px;border-radius:3px;display:block}
-#legend .ends{display:flex;justify-content:space-between;font-size:12px;color:var(--muted)}
+button.mini{padding:0 6px;font-size:12px}
+h2{font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin:12px 0 4px}
+.lay{display:grid;grid-template-columns:20px 1fr auto;gap:2px 8px;align-items:center;margin:4px 0}
+.lay canvas{grid-column:2;width:100%;height:8px;border-radius:2px}
+.lay .rng{grid-column:2;display:flex;justify-content:space-between;font-size:11px;color:var(--muted)}
+.lay.off{opacity:.6}.lay .why{grid-column:2/4;font-size:11px;color:var(--muted)}
 #hdr{display:inline-block;padding:1px 8px;border-radius:10px;font-size:12px;color:#fff}
 .muted{color:var(--muted);font-size:11px}
 #toggle{display:none}
-@media (max-width:560px){#panel{top:auto;bottom:8px;left:8px;right:8px;width:auto}#panel.collapsed .body{display:none}#toggle{display:inline-block}}
+@media (max-width:560px){#panel{top:auto;bottom:8px;left:8px;right:8px;width:auto;max-height:55vh}#panel.collapsed .body{display:none}#toggle{display:inline-block}}
 </style>
 </head>
 <body>
-<div id="view"></div>
+<div id="view"></div><div id="labels"></div>
 <div id="panel">
-  <div style="display:flex;justify-content:space-between;align-items:center">
-    <h1 id="ttl"></h1><button id="toggle" class="sec">☰</button>
-  </div>
+  <div style="display:flex;justify-content:space-between;align-items:center"><h1 id="ttl"></h1><button id="toggle" class="sec">☰</button></div>
   <div id="clock">–</div>
   <div class="body">
     <div class="row"><button id="play">▶</button><input id="time" type="range" min="0" max="1000" value="0" step="1"></div>
     <div class="row"><label id="l_speed"></label><select id="speed"><option>10</option><option>30</option><option selected>60</option><option>120</option><option>300</option></select></div>
-    <div class="row"><label id="l_layer"></label><select id="layer"></select></div>
+    <h2 id="h_maps"></h2>
+    <div id="layers"></div>
+    <div class="row"><label id="l_layout"></label><select id="layout"></select><button id="all" class="sec"></button></div>
+    <h2 id="h_view"></h2>
     <div class="row"><label id="l_exag"></label><input id="exag" type="range" min="1" max="10" step="0.5" value="3"><span id="exagv"></span></div>
     <div class="row"><label id="l_size"></label><input id="size" type="range" min="1" max="6" step="0.5" value="2.5"></div>
     <div class="row"><label id="l_follow"></label><input id="follow" type="checkbox"></div>
     <div class="row"><label id="l_hdr"></label><span id="hdr">–</span></div>
-    <div id="legend"><div id="leglabel" class="muted"></div><canvas id="legc" width="256" height="12"></canvas><div class="ends"><span id="lmin"></span><span id="lmax"></span></div></div>
     <p class="muted" id="grey"></p><p class="muted" id="attr"></p>
   </div>
 </div>
 <script>/*THREE*/</script>
 <script>/*ORBIT*/</script>
-<script>
-const D = /*DATA*/null;
+<script type="module">
+/*COMMON*/
+const D = await unpack("/*DATA*/");
 const FI = D.lang === "fi";
-const T = FI ? {speed:"nopeus ×", layer:"kerros", exag:"korostus ×", size:"puimurin koko ×", follow:"seuraa", hdr:"leikkuupöytä", down:"alhaalla", up:"ylhäällä", hint:"Vedä: käännä · rulla: zoomaa · oikea painike: siirrä"}
-                 : {speed:"speed ×", layer:"layer", exag:"exaggeration ×", size:"combine size ×", follow:"follow", hdr:"header", down:"lowered", up:"raised", hint:"Drag: rotate · wheel: zoom · right button: pan"};
-for (const k of ["speed","layer","exag","size","follow","hdr"]) document.getElementById("l_"+k).textContent = T[k];
-document.getElementById("ttl").textContent = D.title;
-document.getElementById("grey").textContent = FI ? "Harmaa: leikattu, mutta tietue hylätty (laatuliput) tai ei laatumittausta." : "Grey: cut, but the record is flagged or has no quality reading.";
-document.getElementById("attr").textContent = T.hint + (D.terrain.attribution ? " · " + D.terrain.attribution : "");
-document.getElementById("toggle").onclick = () => document.getElementById("panel").classList.toggle("collapsed");
+const T = FI ? {speed:"nopeus ×", layout:"asettelu", exag:"korostus ×", size:"puimurin koko ×", follow:"seuraa", hdr:"leikkuupöytä", down:"alhaalla", up:"ylhäällä",
+  maps:"Näytettävät kartat", view:"Näkymä", all:"Kaikki", row:"rivi", grid:"ruudukko", stack:"pino", focus:"kohdista",
+  hint:"Vedä: käännä · rulla: zoomaa · oikea painike: siirrä · tuplaklikkaa karttaa: kohdista, tyhjää: kaikki", grey:"Harmaa: leikattu, mutta tietue hylätty (laatuliput) tai ei mittausta."}
+  : {speed:"speed ×", layout:"layout", exag:"exaggeration ×", size:"combine size ×", follow:"follow", hdr:"header", down:"lowered", up:"raised",
+  maps:"Maps shown", view:"View", all:"All", row:"row", grid:"grid", stack:"stack", focus:"focus",
+  hint:"Drag: rotate · wheel: zoom · right button: pan · double-click a map: focus, empty space: all", grey:"Grey: cut, but the record is flagged or has no reading."};
+const $ = id => document.getElementById(id);
+for (const k of ["speed","layout","exag","size","follow","hdr"]) $("l_"+k).textContent = T[k];
+$("h_maps").textContent = T.maps; $("h_view").textContent = T.view; $("all").textContent = T.all; $("ttl").textContent = D.title;
+$("grey").textContent = T.grey; $("attr").textContent = T.hint + (D.terrain.attribution ? " · " + D.terrain.attribution : "");
+$("toggle").onclick = () => $("panel").classList.toggle("collapsed");
+for (const [v, l] of [["row", T.row], ["grid", T.grid], ["stack", T.stack]]){ const o = document.createElement("option"); o.value = v; o.textContent = l; $("layout").appendChild(o); }
+$("layout").value = D.layout || "row";
 
-// --- palettes -------------------------------------------------------------------
-const PAL = {
-  yield: ["#a50026","#d73027","#f46d43","#fdae61","#fee08b","#d9ef8b","#a6d96a","#66bd63","#1a9850","#006837"],
-  protein: ["#440154","#482878","#3e4989","#31688e","#26828e","#1f9e89","#35b779","#6ece58","#b5de2b","#fde725"],
-  moisture: ["#ffffd9","#edf8b1","#c7e9b4","#7fcdbb","#41b6c4","#1d91c0","#225ea8","#253494","#081d58"]
-};
-function hex(c){return [parseInt(c.slice(1,3),16),parseInt(c.slice(3,5),16),parseInt(c.slice(5,7),16)];}
-function colour(pal, f){const s=PAL[pal]; f=Math.min(1,Math.max(0,f)); const p=f*(s.length-1), i=Math.min(s.length-2,Math.floor(p)), w=p-i, a=hex(s[i]), b=hex(s[i+1]);
-  return `rgb(${Math.round(a[0]+(b[0]-a[0])*w)},${Math.round(a[1]+(b[1]-a[1])*w)},${Math.round(a[2]+(b[2]-a[2])*w)})`;}
-
-// --- terrain heights ------------------------------------------------------------
-const TR = D.terrain, W = (TR.nx-1)*TR.step, H = (TR.ny-1)*TR.step;
-let exag = 3;
-function hRaw(x, y){ // bilinear, metres above the lowest point
-  const fx = Math.min(TR.nx-1.001, Math.max(0, x/TR.step)), fy = Math.min(TR.ny-1.001, Math.max(0, y/TR.step));
-  const i = Math.floor(fx), j = Math.floor(fy), u = fx-i, v = fy-j, n = TR.nx, h = TR.h;
-  return (h[j*n+i]*(1-u)+h[j*n+i+1]*u)*(1-v) + (h[(j+1)*n+i]*(1-u)+h[(j+1)*n+i+1]*u)*v;
-}
-const hAt = (x, y) => hRaw(x, y) * exag;
-
-// --- three.js scene -------------------------------------------------------------
-const view = document.getElementById("view");
-const renderer = new THREE.WebGLRenderer({antialias:true});
-renderer.setPixelRatio(Math.min(2, window.devicePixelRatio));
-view.appendChild(renderer.domElement);
-const scene = new THREE.Scene();
-const dark = matchMedia("(prefers-color-scheme: dark)").matches;
-scene.background = new THREE.Color(dark ? 0x141a20 : 0xdfe7ee);
-const camera = new THREE.PerspectiveCamera(45, 1, 1, 20000);
-const controls = new THREE.OrbitControls(camera, renderer.domElement);
-controls.enableDamping = true; controls.maxPolarAngle = Math.PI*0.49;
-scene.add(new THREE.HemisphereLight(0xffffff, 0x445566, 0.75));
-const sun = new THREE.DirectionalLight(0xffffff, 0.75); sun.position.set(-W, Math.max(W,H), H); scene.add(sun);
-
-// map layer texture: hillshade + boundary + records painted as they are cut
-const CW = 2048, CH = Math.round(2048*H/W) || 2048;
-const canvas = document.createElement("canvas"); canvas.width = CW; canvas.height = CH;
-const ctx = canvas.getContext("2d");
-const tex = new THREE.CanvasTexture(canvas); tex.anisotropy = 8;
-const base = document.createElement("canvas"); base.width = TR.nx; base.height = TR.ny;
-(function shade(){
-  const b = base.getContext("2d"), img = b.createImageData(TR.nx, TR.ny), n = TR.nx, h = TR.h, s = TR.step;
-  for (let j=0;j<TR.ny;j++) for (let i=0;i<n;i++){
-    const i0=Math.max(0,i-1), i1=Math.min(n-1,i+1), j0=Math.max(0,j-1), j1=Math.min(TR.ny-1,j+1);
-    const gx=(h[j*n+i1]-h[j*n+i0])/((i1-i0)*s), gy=(h[j1*n+i]-h[j0*n+i])/((j1-j0)*s);
-    const nl=Math.hypot(gx,gy,1), l=(-gx*-0.5+-gy*0.5+1*0.7)/(nl*Math.hypot(0.5,0.5,0.7));
-    const v = 95+125*Math.max(0,l), row = TR.ny-1-j, k=(row*n+i)*4;
-    img.data[k]=Math.round(v*0.93); img.data[k+1]=Math.round(v*0.97); img.data[k+2]=Math.round(v*0.82); img.data[k+3]=255;
-  }
-  b.putImageData(img,0,0);
-})();
+const S = initScene($("view")), scene = S.scene, camera = S.camera;
+const TR = D.terrain, TE = makeTerrain(TR), W = TE.W, H = TE.H;
+const base = makeHillshade(TR);
+const NCELL = Math.max(1024, Math.min(2048, Math.round(5200 / Math.max(1, D.visible.length))));
+const CW = NCELL, CH = Math.max(256, Math.round(CW * H / W));
 const px = x => x/W*CW, py = y => (H-y)/H*CH;
-function paintBase(){
-  ctx.imageSmoothingEnabled = true; ctx.drawImage(base, 0, 0, CW, CH);
-  ctx.strokeStyle = "#1f2933"; ctx.lineWidth = 3;
-  for (const r of D.boundary){ ctx.beginPath(); for (let k=0;k<r.length;k+=2){ const X=px(r[k]), Y=py(r[k+1]); k?ctx.lineTo(X,Y):ctx.moveTo(X,Y);} ctx.stroke(); }
-}
-let layer = Object.keys(D.layers)[0], painted = 0;
-function paintRecords(a, b){
-  const L = D.layers[layer], lo = L.range[0], hi = L.range[1];
-  for (let i=a;i<b;i++){
-    const v = L.values[i], p = D.poly[i]; if (!p || (v === null && !D.cut[i])) continue;
-    ctx.fillStyle = v === null ? "rgba(120,120,120,0.55)" : colour(L.palette, (v-lo)/(hi-lo));
-    ctx.beginPath(); ctx.moveTo(px(p[0]),py(p[1])); ctx.lineTo(px(p[2]),py(p[3])); ctx.lineTo(px(p[4]),py(p[5])); ctx.lineTo(px(p[6]),py(p[7])); ctx.closePath(); ctx.fill();
-  }
-  tex.needsUpdate = true;
-}
-function repaint(upto){ paintBase(); paintRecords(0, upto); painted = upto; }
 
 const geo = new THREE.PlaneGeometry(W, H, TR.nx-1, TR.ny-1);
 geo.rotateX(-Math.PI/2); geo.translate(W/2, 0, -H/2);
-const terrain = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({map:tex}));
-scene.add(terrain);
 function applyExag(){
   const pos = geo.attributes.position;
-  for (let k=0;k<pos.count;k++){ pos.setY(k, hAt(pos.getX(k), -pos.getZ(k))); }
-  pos.needsUpdate = true; geo.computeVertexNormals();
-  document.getElementById("exagv").textContent = exag;
+  for (let k=0;k<pos.count;k++) pos.setY(k, TE.at(pos.getX(k), -pos.getZ(k)));
+  pos.needsUpdate = true; geo.computeVertexNormals(); $("exagv").textContent = TE.exag;
 }
-
-// --- combine model --------------------------------------------------------------
-function makeCombine(width){
-  const g = new THREE.Group(), body = new THREE.Group(); g.add(body);
-  const green = new THREE.MeshLambertMaterial({color:0x2f7d32}), dark = new THREE.MeshLambertMaterial({color:0x263238}), glass = new THREE.MeshLambertMaterial({color:0x90caf9});
-  const box = (w,h,l,m,x,y,z) => { const o = new THREE.Mesh(new THREE.BoxGeometry(w,h,l), m); o.position.set(x,y,z); body.add(o); return o; };
-  box(3.2,2.6,7.0,green,0,2.2,5.0);            // body
-  box(2.2,1.8,2.0,glass,0,4.3,2.6);             // cab
-  box(2.4,0.3,2.2,green,0,5.3,2.6);             // roof
-  box(0.35,0.35,5.5,dark,-2.2,4.2,6.0);          // unloading auger
-  for (const [x,z,r] of [[-1.7,2.6,0.95],[1.7,2.6,0.95],[-1.5,7.6,0.6],[1.5,7.6,0.6]]){
-    const w = new THREE.Mesh(new THREE.CylinderGeometry(r,r,0.6,20), dark); w.rotation.z = Math.PI/2; w.position.set(x, r, z); body.add(w);
-  }
-  const header = new THREE.Group(); g.add(header);
-  const hm = new THREE.MeshLambertMaterial({color:0xf2c94c});
-  const bar = new THREE.Mesh(new THREE.BoxGeometry(width,0.7,1.8), hm); bar.position.set(0,0,-0.2); header.add(bar);
-  const reel = new THREE.Mesh(new THREE.CylinderGeometry(0.45,0.45,width*0.97,16), new THREE.MeshLambertMaterial({color:0xc0392b}));
-  reel.rotation.z = Math.PI/2; reel.position.set(0,1.0,-0.6); header.add(reel);
-  const feeder = new THREE.Mesh(new THREE.BoxGeometry(1.4,0.8,2.2), green); feeder.position.set(0,0.6,1.2); header.add(feeder);
-  g.userData = {header, hm, hY:0.4};
-  return g;
-}
-const combines = D.machines.map((m, k) => {
-  const i = D.machine.indexOf(k), c = makeCombine(D.swath[i] || 6); scene.add(c); return c;
-});
-let csize = 2.5;
-// trail
+// shared trail
 const TRAIL = 600, trailGeo = new THREE.BufferGeometry(), trailPos = new Float32Array(TRAIL*3);
 trailGeo.setAttribute("position", new THREE.BufferAttribute(trailPos, 3));
-const trail = new THREE.Line(trailGeo, new THREE.LineBasicMaterial({color:0x111111, transparent:true, opacity:0.55}));
-scene.add(trail);
+const trailMat = new THREE.LineBasicMaterial({color:0x111111, transparent:true, opacity:0.55});
 
-// --- playback -------------------------------------------------------------------
-const N = D.t.length, END = D.play[N-1] || 1;
-let tPlay = 0, playing = false, idx = 0;
-const slider = document.getElementById("time");
-function upper(t){ let lo=0, hi=N; while(lo<hi){ const m=(lo+hi)>>1; if (D.play[m] <= t) lo=m+1; else hi=m; } return lo; }
-function fmtTime(s){ const d=new Date(s*1000); return d.toLocaleString(FI?"fi-FI":"en-GB",{timeZone:"Europe/Helsinki",day:"2-digit",month:"2-digit",year:"numeric",hour:"2-digit",minute:"2-digit",second:"2-digit"}); }
-function update(force){
-  const n = upper(tPlay);
-  if (n < painted || force) repaint(n); else if (n > painted){ paintRecords(painted, n); painted = n; }
-  idx = Math.max(0, n-1);
-  document.getElementById("clock").textContent = N ? fmtTime(D.t[idx]) : "–";
-  let hdrDown = null;
-  combines.forEach((c, k) => {
-    let j = idx; while (j >= 0 && D.machine[j] !== k) j--;
-    if (j < 0 || D.x[j] === null){ c.visible = false; return; }
-    c.visible = true;
-    const x = D.x[j], y = D.y[j], hd = D.heading[j] || 0;
-    c.position.set(x, hAt(x, y), -y); c.rotation.y = -hd; c.scale.setScalar(csize);
-    const ud = c.userData, target = D.down[j] ? 0.35 : 1.7;
-    ud.hY += (target - ud.hY) * 0.25; ud.header.position.y = ud.hY;
-    ud.hm.color.set(D.down[j] ? 0xf2c94c : 0xe57373);
-    ud.header.scale.x = Math.max(1, (D.swath[j] || 6) / (D.swath[j] || 6));
-    if (k === 0 || hdrDown === null) hdrDown = !!D.down[j];
+const tiles = {}, LAY = {cols:1, rows:1, gap:0}, labels = $("labels");
+let visible = [...D.visible];
+{ const h = decodeURIComponent(location.hash.slice(1)); if (h){ const want = h.split(",").filter(k => D.layers[k] && D.layers[k].available); if (want.length) visible = want; } }
+function ensureTile(key){
+  if (tiles[key]) return tiles[key];
+  const t = {key, painted:0, dirty:true};
+  t.canvas = document.createElement("canvas"); t.canvas.width = CW; t.canvas.height = CH; t.ctx = t.canvas.getContext("2d");
+  t.tex = new THREE.CanvasTexture(t.canvas); t.tex.anisotropy = 8;
+  t.mesh = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({map:t.tex})); t.mesh.userData.key = key;
+  t.group = new THREE.Group(); t.group.add(t.mesh);
+  t.combines = D.machines.map((m, k) => { const c = makeCombine(D.swath[D.machine.indexOf(k)] || 6); t.group.add(c); return c; });
+  t.trail = new THREE.Line(trailGeo, trailMat); t.group.add(t.trail);
+  t.label = document.createElement("div"); t.label.className = "tl"; t.label.textContent = D.layers[key].label;
+  t.label.onclick = () => focusTile(key); labels.appendChild(t.label);
+  scene.add(t.group); tiles[key] = t; return t;
+}
+function paintBase(t){
+  const c = t.ctx; c.imageSmoothingEnabled = true; c.drawImage(base, 0, 0, CW, CH);
+  c.strokeStyle = "#1f2933"; c.lineWidth = 3;
+  for (const r of D.boundary){ c.beginPath(); for (let k=0;k<r.length;k+=2){ const X=px(r[k]), Y=py(r[k+1]); k?c.lineTo(X,Y):c.moveTo(X,Y);} c.stroke(); }
+}
+function paintRecords(t, a, b){
+  const L = D.layers[t.key], lo = L.range[0], hi = L.range[1], c = t.ctx;
+  for (let i=a;i<b;i++){
+    const v = L.values[i], p = D.poly[i]; if (!p || (v === null && !D.cut[i])) continue;
+    c.fillStyle = v === null ? "rgba(120,120,120,0.55)" : colour(t.key, (v-lo)/(hi-lo));
+    c.beginPath(); c.moveTo(px(p[0]),py(p[1])); c.lineTo(px(p[2]),py(p[3])); c.lineTo(px(p[4]),py(p[5])); c.lineTo(px(p[6]),py(p[7])); c.closePath(); c.fill();
+  }
+  t.tex.needsUpdate = true;
+}
+function repaint(t, upto){ paintBase(t); paintRecords(t, 0, upto); t.painted = upto; t.dirty = false; }
+
+// --- layout and camera ------------------------------------------------------------------
+let boxes = {};
+function layout(fly=true){
+  const n = visible.length, mode = $("layout").value, gap = Math.max(W, H) * 0.12;
+  const cols = mode === "row" ? n : mode === "stack" ? 1 : Math.ceil(Math.sqrt(n));
+  boxes = {};
+  visible.forEach((k, i) => {
+    const t = ensureTile(k), c = i % cols, r = Math.floor(i / cols);
+    t.group.position.set(c*(W+gap), 0, r*(H+gap)); t.group.visible = true; t.label.style.display = "";
+    boxes[k] = {x:c*(W+gap), z:r*(H+gap)};
   });
-  const h = document.getElementById("hdr");
-  if (hdrDown !== null){ h.textContent = hdrDown ? T.down : T.up; h.style.background = hdrDown ? "#2b8a3e" : "#e03131"; }
-  // trail of the first machine
-  let c = 0;
-  for (let j = idx; j >= 0 && c < TRAIL; j--){ if (D.x[j] === null) continue; trailPos[c*3]=D.x[j]; trailPos[c*3+1]=hAt(D.x[j],D.y[j])+0.6; trailPos[c*3+2]=-D.y[j]; c++; }
-  trailGeo.setDrawRange(0, c); trailGeo.attributes.position.needsUpdate = true;
-  slider.value = Math.round(tPlay/END*1000);
-  if (document.getElementById("follow").checked && combines[0] && combines[0].visible){
-    const p = combines[0].position, d = camera.position.clone().sub(controls.target);
-    controls.target.lerp(p, 0.15); camera.position.copy(controls.target.clone().add(d));
+  for (const k of Object.keys(tiles)) if (!visible.includes(k)){ tiles[k].group.visible = false; tiles[k].label.style.display = "none"; }
+  LAY.cols = cols; LAY.rows = Math.ceil(n / cols); LAY.gap = gap;
+  if (fly !== null) fitAll(fly);
+}
+function fitAll(fly=true){
+  if (!visible.length) return;
+  const cols = LAY.cols, rows = LAY.rows, gap = LAY.gap;
+  S.fitBox(0, cols*W + (cols-1)*gap, -H, (rows-1)*(H+gap), fly);
+}
+function focusTile(key){ const b = boxes[key]; if (b) S.fitBox(b.x, b.x+W, b.z-H, b.z, true); }
+
+// --- layer list ------------------------------------------------------------------------
+function buildList(){
+  const box = $("layers"); box.innerHTML = "";
+  for (const key of D.order){
+    const L = D.layers[key], row = document.createElement("div"); row.className = "lay" + (L.available ? "" : " off");
+    const cb = document.createElement("input"); cb.type = "checkbox"; cb.checked = visible.includes(key); cb.disabled = !L.available; cb.id = "cb_"+key;
+    const lab = document.createElement("label"); lab.htmlFor = cb.id; lab.textContent = L.label;
+    const f = document.createElement("button"); f.className = "sec mini"; f.textContent = "⌖"; f.title = T.focus; f.disabled = !L.available; f.onclick = () => focusTile(key);
+    row.append(cb, lab, f);
+    if (L.available){
+      const cv = document.createElement("canvas"); cv.width = 128; cv.height = 8; const c = cv.getContext("2d");
+      for (let i=0;i<128;i++){ c.fillStyle = colour(key, i/127); c.fillRect(i,0,1,8); }
+      const rg = document.createElement("div"); rg.className = "rng"; rg.innerHTML = `<span>${L.range[0].toFixed(1)}</span><span>${L.range[1].toFixed(1)}</span>`;
+      row.append(cv, rg);
+    } else { const w = document.createElement("div"); w.className = "why"; w.textContent = L.reason; row.append(w); }
+    cb.onchange = () => {
+      visible = D.order.filter(k => k === key ? cb.checked : visible.includes(k));
+      if (cb.checked){ const t = ensureTile(key); t.dirty = true; }
+      layout(true); update(true);
+    };
+    box.appendChild(row);
   }
 }
-function legend(){
-  const L = D.layers[layer], c = document.getElementById("legc").getContext("2d");
-  for (let i=0;i<256;i++){ c.fillStyle = colour(L.palette, i/255); c.fillRect(i,0,1,12); }
-  document.getElementById("leglabel").textContent = L.label;
-  document.getElementById("lmin").textContent = L.range[0].toFixed(1);
-  document.getElementById("lmax").textContent = L.range[1].toFixed(1);
-}
-const sel = document.getElementById("layer");
-for (const [k, L] of Object.entries(D.layers)){ const o = document.createElement("option"); o.value = k; o.textContent = L.label; sel.appendChild(o); }
-sel.onchange = () => { layer = sel.value; legend(); update(true); };
-document.getElementById("play").onclick = () => { playing = !playing; if (playing && tPlay >= END) tPlay = 0; document.getElementById("play").textContent = playing ? "❚❚" : "▶"; };
-slider.oninput = () => { tPlay = slider.value/1000*END; update(); };
-document.getElementById("exag").oninput = e => { exag = +e.target.value; applyExag(); update(); };
-document.getElementById("size").oninput = e => { csize = +e.target.value; update(); };
 
-function resize(){ const w = innerWidth, h = innerHeight; renderer.setSize(w, h); camera.aspect = w/h; camera.updateProjectionMatrix(); }
-addEventListener("resize", resize); resize();
-camera.position.set(W*0.5 - W*0.35, Math.max(W,H)*0.75, H*0.35); controls.target.set(W/2, 0, -H/2); controls.update();
-applyExag(); legend(); repaint(0); update(true);
+// --- playback ---------------------------------------------------------------------------
+const N = D.t.length, END = D.play[N-1] || 1;
+let tPlay = 0, playing = false, csize = 2.5, idx = 0;
+const slider = $("time");
+function upper(t){ let lo=0, hi=N; while(lo<hi){ const m=(lo+hi)>>1; if (D.play[m] <= t) lo=m+1; else hi=m; } return lo; }
+const fmtTime = s => new Date(s*1000).toLocaleString(FI?"fi-FI":"en-GB",{timeZone:"Europe/Helsinki",day:"2-digit",month:"2-digit",year:"numeric",hour:"2-digit",minute:"2-digit",second:"2-digit"});
+function update(force){
+  const n = upper(tPlay); idx = Math.max(0, n-1);
+  for (const k of visible){
+    const t = ensureTile(k);
+    if (force || t.dirty || n < t.painted) repaint(t, n); else if (n > t.painted){ paintRecords(t, t.painted, n); t.painted = n; }
+  }
+  $("clock").textContent = N ? fmtTime(D.t[idx]) : "–";
+  let hdrDown = null, first = true;
+  D.machines.forEach((m, k) => {
+    let j = idx; while (j >= 0 && D.machine[j] !== k) j--;
+    for (const key of visible){
+      const c = tiles[key].combines[k];
+      if (j < 0 || D.x[j] === null){ c.visible = false; continue; }
+      c.visible = true;
+      const x = D.x[j], y = D.y[j], hd = D.heading[j] || 0;
+      c.position.set(x, TE.at(x, y), -y); c.rotation.y = -hd; c.scale.setScalar(csize);
+      const ud = c.userData, target = D.down[j] ? 0.35 : 1.7;
+      ud.hY += (target - ud.hY) * 0.25; ud.header.position.y = ud.hY; ud.hm.color.set(D.down[j] ? 0xf2c94c : 0xe57373);
+    }
+    if (j >= 0 && first){ hdrDown = !!D.down[j]; first = false; }
+  });
+  const h = $("hdr");
+  if (hdrDown !== null){ h.textContent = hdrDown ? T.down : T.up; h.style.background = hdrDown ? "#2b8a3e" : "#e03131"; }
+  let c = 0;
+  for (let j = idx; j >= 0 && c < TRAIL; j--){ if (D.x[j] === null) continue; trailPos[c*3]=D.x[j]; trailPos[c*3+1]=TE.at(D.x[j],D.y[j])+0.6; trailPos[c*3+2]=-D.y[j]; c++; }
+  trailGeo.setDrawRange(0, c); trailGeo.attributes.position.needsUpdate = true;
+  slider.value = Math.round(tPlay/END*1000);
+  const first_t = visible.length ? tiles[visible[0]] : null;
+  if ($("follow").checked && first_t && first_t.combines[0].visible){
+    const p = new THREE.Vector3(); first_t.combines[0].getWorldPosition(p);
+    const d = camera.position.clone().sub(S.controls.target); S.controls.target.lerp(p, 0.15); camera.position.copy(S.controls.target.clone().add(d));
+  }
+}
+$("play").onclick = () => { playing = !playing; if (playing && tPlay >= END) tPlay = 0; $("play").textContent = playing ? "❚❚" : "▶"; };
+slider.oninput = () => { tPlay = slider.value/1000*END; update(); };
+$("exag").oninput = e => { TE.exag = +e.target.value; applyExag(); update(); };
+$("size").oninput = e => { csize = +e.target.value; update(); };
+$("layout").onchange = () => layout(true);
+$("all").onclick = () => fitAll(true);
+const ray = new THREE.Raycaster();
+S.renderer.domElement.addEventListener("dblclick", ev => {
+  const r = S.renderer.domElement.getBoundingClientRect();
+  ray.setFromCamera(new THREE.Vector2(((ev.clientX-r.left)/r.width)*2-1, -((ev.clientY-r.top)/r.height)*2+1), camera);
+  const hit = ray.intersectObjects(visible.map(k => tiles[k].mesh), false)[0];
+  if (hit) focusTile(hit.object.userData.key); else fitAll(true);
+});
+
+applyExag(); buildList(); layout(false); fitAll(false); update(true);
+const tmp = new THREE.Vector3();
 let last = performance.now();
-renderer.setAnimationLoop(now => {
+S.renderer.setAnimationLoop(now => {
   const dt = Math.min(0.1, (now - last)/1000); last = now;
-  if (playing){ tPlay = Math.min(END, tPlay + dt * +document.getElementById("speed").value); if (tPlay >= END){ playing = false; document.getElementById("play").textContent = "▶"; } update(); }
-  else update();
-  controls.update(); renderer.render(scene, camera);
+  if (playing){ tPlay = Math.min(END, tPlay + dt * +$("speed").value); if (tPlay >= END){ playing = false; $("play").textContent = "▶"; } }
+  update();
+  S.stepCamera(dt); S.controls.update(); S.renderer.render(scene, camera);
+  for (const k of visible){ // tile labels follow the tiles
+    const t = tiles[k]; tmp.set(W/2, TE.exag * 10 + 6, -H).add(t.group.position).project(camera);
+    t.label.style.display = tmp.z > 1 ? "none" : ""; t.label.style.left = ((tmp.x+1)/2*innerWidth) + "px"; t.label.style.top = ((1-tmp.y)/2*innerHeight) + "px";
+  }
 });
 </script>
 </body>

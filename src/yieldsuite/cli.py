@@ -352,19 +352,30 @@ def _cmd_timelapse(args) -> int:
                 dem = None
     if args.no_dem:
         dem = None
+    from .viz.timelapse import parse_layer_list
+
+    try:
+        layers = parse_layer_list(args.layers)
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    for k, lay in track.layers.items():
+        if not lay.available and (layers is None or k in layers) and k in ("oil", "protein"):
+            print(f"note: {k} not shown: {lay.reason_en or lay.reason}")
     title = args.title or (f"Lohko {cfg.field_id} · puinti {cfg.year}" if args.lang == "fi"
                            else f"Field {cfg.field_id} · harvest {cfg.year}")
     stem = f"{cfg.field_id}_{cfg.year}"
     if not args.no_html:
         from .viz.viewer3d import build_html
 
-        p = build_html(track, out / f"{stem}_harvest_3d.html", boundary, dem, title, args.lang)
+        p = build_html(track, out / f"{stem}_harvest_3d.html", boundary, dem, title, args.lang,
+                       layers=layers, layout=args.layout)
         print(f"3D viewer: {p}")
     if not args.no_video:
         from .viz.video import write_video
 
         p = write_video(track, out / f"{stem}_timelapse.mp4", boundary, dem, args.seconds,
-                        args.fps, args.lang)
+                        args.fps, args.lang, layers=layers)
         print(f"timelapse: {p}")
     return 0
 
@@ -679,6 +690,13 @@ def build_parser() -> argparse.ArgumentParser:
     tl.add_argument("--fps", type=int, default=25)
     tl.add_argument("--title")
     tl.add_argument("--lang", choices=["fi", "en"], default="fi")
+    tl.add_argument(
+        "--layers",
+        help="maps to show: yield,moisture,protein,oil,carbohydrate,starch (default: the "
+        "available ones of the first four). In the 3D viewer the rest can be ticked on",
+    )
+    tl.add_argument("--layout", choices=["row", "grid", "stack"], default="row",
+                    help="3D viewer: how the maps are placed (default row)")
     tl.set_defaults(func=_cmd_timelapse)
 
     s2 = sub.add_parser("s2-search", help="list Sentinel-2 scenes over the field (STAC)")
