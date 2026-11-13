@@ -1369,6 +1369,14 @@ def _html(
         "".join(f"<div class='kpi'><span>{e(k)}</span><b>{v}</b></div>" for k, v in kpis),
         "</div>",
     ]
+    try:
+        from . import certainty as _cert
+
+        cert = _cert.assess(config)
+        Path(_cert.write(config))
+        parts.append(_certainty_html(cert, lang))
+    except Exception as exc:  # noqa: BLE001 - the report is still worth having
+        parts.append(f"<p class='bad'>certainty summary failed: {e(str(exc))}</p>")
     run_notes = (manifest.get("result") or {}).get("notes") or []
     if run_notes:
         parts.append("<ul>" + "".join(f"<li>{e(n)}</li>" for n in run_notes) + "</ul>")
@@ -1582,3 +1590,58 @@ def _moisture_html(qa: dict, figs: dict, lang: str, n: int) -> tuple[str, int]:
             out += _figure(figs, key, TEXT[lang], n)
             n += 1
     return out, n
+
+
+def _certainty_html(c: dict, lang: str) -> str:
+    """One-page summary: how sure each product is, what is missing, what to do, and where
+    the machine-readable results are (farmer, analyst, developer)."""
+    e = html.escape
+    fi = lang == "fi"
+    lab = {"high": "hyvä" if fi else "high", "medium": "kohtalainen" if fi else "medium",
+           "low": "heikko" if fi else "low"}
+    cls = {"high": "ok", "medium": "watch", "low": "alert"}
+    st = {"known": "tiedossa" if fi else "known", "estimated": "arvioitu" if fi else "estimated",
+          "assumed": "oletettu" if fi else "assumed", "missing": "puuttuu" if fi else "missing"}
+    by_id = {i["id"]: i for i in c["items"]}
+    out = f"<h2>{'Yhteenveto: mihin voi luottaa' if fi else 'Summary: what to trust'}</h2>"
+    rows = []
+    for p in c["products"].values():
+        why = "; ".join(e(by_id[k]["effect"][lang] or by_id[k]["how_filled"][lang])
+                        for k in p["because"][:2] if k in by_id)
+        rows.append([e(p["name"][lang]),
+                     f"<span class='sev {cls[p['certainty']]}'>{lab[p['certainty']]}</span>",
+                     why or ("–")])
+    out += _table(["Tulos", "Varmuus", "Miksi"] if fi else ["Result", "Certainty", "Why"], rows)
+    if c["questions"]:
+        out += f"<h3>{'Näillä tiedoilla tulos paranee' if fi else 'What would improve it'}</h3><ol>"
+        for q in c["questions"]:
+            cmd = f"<br><code>{e(q['command'])}</code>" if q["command"] else ""
+            out += f"<li>{e(q['ask'][lang])}{cmd}</li>"
+        out += "</ol>"
+    n = c["counts"]
+    out += "<details><summary>" + e(
+        f"Kaikki lähtötiedot ja oletukset ({n['known']} tiedossa, {n['estimated']} arvioitu, "
+        f"{n['assumed']} oletettu, {n['missing']} puuttuu)" if fi else
+        f"All inputs and assumptions ({n['known']} known, {n['estimated']} estimated, "
+        f"{n['assumed']} assumed, {n['missing']} missing)") + "</summary>"
+    out += _table(
+        ["Asia", "Tila", "Varmuus", "Miten paikattu", "Vaikutus"] if fi
+        else ["Item", "Status", "Certainty", "How filled", "Effect"],
+        [[e(i["topic"][lang]), st[i["status"]],
+          f"<span class='sev {cls[i['certainty']]}'>{lab[i['certainty']]}</span>",
+          e(i["how_filled"][lang]), e(i["effect"][lang])] for i in c["items"]])
+    out += "</details><details><summary>" + (
+        "Ohjelmistokehittäjälle: koneluettavat tulokset" if fi
+        else "For developers: machine-readable results") + "</summary><ul>"
+    stem = f"{c['field_id']}_{c['year']}"
+    for name, what in (
+        (f"{stem}_certainty.json", "this summary: products, items, questions"),
+        (f"{stem}_run.json", "run manifest: inputs, settings, outputs with SHA-256"),
+        (f"L4_{stem}.tif", "measured yield grid (COG): yield, coverage, n_records, flagged_share"),
+        (f"L5_{stem}.tif", "yield, source (1 measured, 2 filled), sigma, prediction"),
+        (f"L5_{stem}_model_card.json", "models compared, the one used, cross-validated errors"),
+        (f"L3_{stem}_records.parquet", "records with flags, moisture source, geometry"),
+    ):
+        out += f"<li><code>{e(name)}</code> – {e(what)}</li>"
+    out += f"</ul><p>product_class: <code>{e(str(c.get('product_class')))}</code></p></details>"
+    return out

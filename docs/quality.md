@@ -103,7 +103,8 @@ quality:
   sources:
     - path: session.xlsx
       machine_id: combine-a
-      delay_s: -20        # clock offset of the analyzer (see yieldsuite docs); not the flow delay
+      clock_offset_s: auto   # yield-monitor clock minus analyzer clock; auto = from the GPS
+      transit_s: 8           # grain travel time header -> analyzer (0 if not given)
       max_dist_m: 15      # null switches the gate off
 ```
 
@@ -111,7 +112,9 @@ Matching by time alone puts a reading on the wrong place when the analyzer is on
 machine or the clock offset is wrong: on one field 245 of 395 matched records got a reading
 whose own position was more than 15 m away (164 more than 50 m). The number of dropped
 records is in the Q4 QA (`position_gate`) and in the warnings. The same gate applies to
-the moisture correction and to the protein, oil and moisture maps in the timelapse. The
+the moisture correction and to the protein, oil and moisture maps in the timelapse (all
+three use `quality/align.py`). Analyzer time = record time + `transit_s` − `clock_offset_s`;
+the older `delay_s` is the two in one number. The
 clock offset itself (here 21-22 s) is best read from the positions: the offset with the
 smallest median distance between the analyzer track and the yield log.
 

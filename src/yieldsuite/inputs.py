@@ -20,7 +20,6 @@ from __future__ import annotations
 
 import getpass
 import json
-import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -78,110 +77,65 @@ def read_log(config_path: str | Path) -> list[dict]:
 # --- YAML text editing ------------------------------------------------------------
 
 
-def _fmt(value) -> str:
-    if isinstance(value, (list, tuple)):
-        return "[" + ", ".join(_fmt(v) for v in value) + "]"
-    if isinstance(value, float):
-        return f"{value:g}"
-    return str(value)
+def _roundtrip():
+    """YAML reader/writer that keeps comments, key order and layout."""
+    from ruamel.yaml import YAML
+
+    y = YAML()
+    y.preserve_quotes = True
+    y.width = 4096
+    y.indent(mapping=2, sequence=4, offset=2)
+    return y
 
 
-def _indent(line: str) -> int:
-    return len(line) - len(line.lstrip(" "))
+def _dump(y, data) -> str:
+    import io
+
+    buf = io.StringIO()
+    y.dump(data, buf)
+    return buf.getvalue()
 
 
-def _top_key_line(lines: list[str], key: str) -> int | None:
-    for n, line in enumerate(lines):
-        if re.match(rf"^{re.escape(key)}\s*:", line):
-            return n
-    return None
+def _flow(values):
+    from ruamel.yaml.comments import CommentedSeq
 
-
-def _block_end(lines: list[str], start: int, indent: int, seq: bool = False) -> int:
-    """First line after ``start`` that is non-blank, not a comment and not deeper.
-
-    With ``seq`` a ``- item`` at the same indent continues the block (YAML allows
-    a mapping's sequence value without extra indentation, as yaml.dump writes it).
-    """
-    n = start + 1
-    while n < len(lines):
-        s = lines[n].strip()
-        same_seq = seq and _indent(lines[n]) == indent and s.startswith("-")
-        if s and not s.startswith("#") and _indent(lines[n]) <= indent and not same_seq:
-            break
-        n += 1
-    while n > start + 1 and not lines[n - 1].strip():  # keep blank lines outside
-        n -= 1
-    return n
-
-
-def _set_key_in_block(lines, start, end, key_indent, key, value) -> None:
-    pat = re.compile(rf"^(\s*){re.escape(key)}\s*:\s*([^#]*?)(\s*#.*)?$")
-    for n in range(start, end):
-        m = pat.match(lines[n])
-        if m and len(m.group(1)) == key_indent:
-            lines[n] = f"{m.group(1)}{key}: {_fmt(value)}{m.group(3) or ''}"
-            # drop an old block-style value (``key:`` followed by ``- item`` lines)
-            k = n + 1
-            while (
-                k < len(lines)
-                and lines[k].strip()
-                and (
-                    _indent(lines[k]) > key_indent
-                    or (_indent(lines[k]) == key_indent and lines[k].lstrip().startswith("- "))
-                )
-            ):
-                del lines[k]
-            return
-    lines.insert(start + 1, f"{' ' * key_indent}{key}: {_fmt(value)}")
+    seq = CommentedSeq(values)
+    seq.fa.set_flow_style()
+    return seq
 
 
 def set_machine_values(text: str, machine_id: str, values: dict) -> str:
     """Return ``text`` with ``values`` set in the profile of ``machine_id``.
 
-    A missing profile is appended to ``machines:`` (created if absent).
+    A missing profile is appended to ``machines:`` (created if absent). Comments and
+    the order of keys are kept, wherever ``machine_id`` stands in the entry.
     """
-    lines = text.splitlines()
-    top = _top_key_line(lines, "machines")
-    item = re.compile(r"^(\s*)-\s*machine_id\s*:\s*[\"']?([^\"'#\s]+)[\"']?\s*(#.*)?$")
-    if top is not None:
-        if re.match(r"^machines\s*:\s*\[", lines[top]):
-            raise InputError("machines: is written in flow style ([...]); edit it by hand")
-        end = _block_end(lines, top, 0, seq=True)
-        for n in range(top + 1, end):
-            m = item.match(lines[n])
-            if m and m.group(2) == str(machine_id):
-                dash = len(m.group(1))
-                key_indent = dash + 2
-                block_end = _block_end(lines, n, dash)
-                for key, value in values.items():
-                    _set_key_in_block(lines, n, block_end, key_indent, key, value)
-                    block_end = _block_end(lines, n, dash)
-                return "\n".join(lines) + "\n"
-        insert_at, dash = end, 2
-        for n in range(top + 1, end):
-            m = item.match(lines[n])
-            if m:
-                dash = len(m.group(1))
-    else:
-        lines += ["", "machines:"]
-        insert_at, dash = len(lines), 2
-    new = [f"{' ' * dash}- machine_id: {machine_id}", f"{' ' * (dash + 2)}version: 1"]
-    new += [f"{' ' * (dash + 2)}{k}: {_fmt(v)}" for k, v in values.items()]
-    lines[insert_at:insert_at] = new
-    return "\n".join(lines) + "\n"
+    y = _roundtrip()
+    data = y.load(text) or {}
+    machines = data.get("machines")
+    if machines is None:
+        from ruamel.yaml.comments import CommentedSeq
+
+        machines = data["machines"] = CommentedSeq()
+    entry = next((m for m in machines if str(m.get("machine_id")) == str(machine_id)), None)
+    if entry is None:
+        from ruamel.yaml.comments import CommentedMap
+
+        entry = CommentedMap(machine_id=machine_id, version=1)
+        machines.append(entry)
+    for key, value in values.items():
+        entry[key] = _flow(value) if isinstance(value, (list, tuple)) else value
+    return _dump(y, data)
 
 
 def set_top_value(text: str, key: str, value, comment: str = "") -> str:
-    lines = text.splitlines()
-    n = _top_key_line(lines, key)
-    tail = f"  # {comment}" if comment else ""
-    if n is None:
-        lines += ["", f"{key}: {_fmt(value)}{tail}"]
-    else:
-        m = re.match(rf"^{re.escape(key)}\s*:\s*([^#]*?)(\s*#.*)?$", lines[n])
-        lines[n] = f"{key}: {_fmt(value)}{(m.group(2) if m and m.group(2) else tail)}"
-    return "\n".join(lines) + "\n"
+    y = _roundtrip()
+    data = y.load(text) or {}
+    new = key not in data
+    data[key] = value
+    if new and comment:
+        data.yaml_add_eol_comment(comment, key)
+    return _dump(y, data)
 
 
 def _machines(raw: dict) -> dict[str, dict]:

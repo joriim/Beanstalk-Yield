@@ -97,6 +97,7 @@ class SlackSettings:
 class CropSettings:
     name: str = "spring_cereal"
     sowing_date: str | None = None  # ISO date
+    sowing_date_assumed: bool = False  # true when the date is a guess, not a record
     harvest_date: str | None = None  # ISO date; default: last harvesting record
     t_base_c: float = 5.0
     t_cap_c: float | None = None

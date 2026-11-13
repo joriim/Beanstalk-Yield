@@ -23,6 +23,7 @@ dependencies = [
   "pandas>=2.0",
   "shapely>=2.0",
   "pyyaml>=6.0",
+  "ruamel.yaml>=0.18",  # edits field.yaml in place, comments kept
 ]
 
 [project.optional-dependencies]
@@ -79,3 +80,4 @@ select = ["E", "F", "W", "I", "B", "UP", "NPY"]
 [tool.ruff.lint.per-file-ignores]
 # captions are prose in two languages
 "src/yieldsuite/viz/gapstory.py" = ["E501"]
+"src/yieldsuite/certainty.py" = ["E501"]

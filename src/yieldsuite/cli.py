@@ -49,6 +49,13 @@ def _cmd_run(args) -> int:
             print(f"  flagged    {summary.flagged_pct:.1f} % of harvesting records")
         if summary.mass_ok is not None:
             print(f"  mass check {'OK' if summary.mass_ok else 'FAIL'}")
+        for note in summary.notes:
+            print(f"  note       {note}", file=sys.stderr if note.startswith("FAILED") else None)
+        if summary.certainty:
+            from . import certainty
+
+            print()
+            print(certainty.text(summary.certainty, "en"))
     else:
         print(f"error: {summary.error}", file=sys.stderr)
     if args.notify == "slack":
@@ -414,6 +421,29 @@ def _cmd_gapfill_story(args) -> int:
     return 0
 
 
+def _cmd_gaps(args) -> int:
+    import json
+
+    from . import certainty
+
+    cfg = load_config(args.config)
+    res = certainty.assess(cfg)
+    path = Path(cfg.output_dir) / f"{cfg.field_id}_{cfg.year}_certainty.json"
+    if Path(cfg.output_dir).exists():
+        path.write_text(json.dumps(res, indent=2, ensure_ascii=False))
+    if args.json:
+        print(json.dumps(res, indent=2, ensure_ascii=False))
+        return 0
+    print(certainty.text(res, args.lang))
+    if args.all:
+        lab = certainty.LABEL_FI if args.lang == "fi" else {k: k for k in certainty.LABEL_FI}
+        print()
+        for i in res["items"]:
+            print(f"[{lab[i['status']]} / {lab[i['certainty']]}] {i['topic'][args.lang]}: "
+                  f"{i['how_filled'][args.lang]} {i['effect'][args.lang]}".rstrip())
+    return 0
+
+
 def _cmd_s2_search(args) -> int:
     from .l4.io import read_bands
     from .public.field import field_bbox_wgs84
@@ -744,6 +774,15 @@ def build_parser() -> argparse.ArgumentParser:
     gf.add_argument("--no-html", action="store_true")
     gf.add_argument("--lang", choices=["fi", "en"], default="fi")
     gf.set_defaults(func=_cmd_gapfill_story)
+
+    gp = sub.add_parser(
+        "gaps", help="what is known, estimated, assumed or missing; certainty; open questions"
+    )
+    gp.add_argument("config")
+    gp.add_argument("--all", action="store_true", help="list every item, not only the questions")
+    gp.add_argument("--json", action="store_true")
+    gp.add_argument("--lang", choices=["fi", "en"], default="fi")
+    gp.set_defaults(func=_cmd_gaps)
 
     s2 = sub.add_parser("s2-search", help="list Sentinel-2 scenes over the field (STAC)")
     s2.add_argument("config")

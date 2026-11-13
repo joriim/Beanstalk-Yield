@@ -48,6 +48,7 @@ h2{font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:var(--mute
     <div class="row"><label id="l_size"></label><input id="size" type="range" min="1" max="6" step="0.5" value="2.5"></div>
     <div class="row"><label id="l_follow"></label><input id="follow" type="checkbox"></div>
     <div class="row"><label id="l_hdr"></label><span id="hdr">–</span></div>
+    <h2 id="h_probe"></h2><div id="probe" class="muted"></div><p class="muted" id="scale"></p>
     <p class="muted" id="grey"></p><p class="muted" id="attr"></p>
   </div>
 </div>
@@ -58,14 +59,15 @@ h2{font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:var(--mute
 const D = await unpack("/*DATA*/");
 const FI = D.lang === "fi";
 const T = FI ? {speed:"nopeus ×", layout:"asettelu", exag:"korostus ×", size:"puimurin koko ×", follow:"seuraa", hdr:"leikkuupöytä", down:"alhaalla", up:"ylhäällä",
-  maps:"Näytettävät kartat", view:"Näkymä", all:"Kaikki", row:"rivi", grid:"ruudukko", stack:"pino", focus:"kohdista",
+  maps:"Näytettävät kartat", cover:"kattavuus", mean:"ka.", low:"Mittaus kattaa alle puolet leikatusta alasta", probe:"Vie hiiri kartan päälle: arvot samasta kohdasta kaikista kartoista", nov:"ei arvoa", exn:"Korkeudet ×", sz:"puimuri ×", view:"Näkymä", all:"Kaikki", row:"rivi", grid:"ruudukko", stack:"pino", focus:"kohdista",
   hint:"Vedä: käännä · rulla: zoomaa · oikea painike: siirrä · tuplaklikkaa karttaa: kohdista, tyhjää: kaikki", grey:"Harmaa: leikattu, mutta tietue hylätty (laatuliput) tai ei mittausta."}
   : {speed:"speed ×", layout:"layout", exag:"exaggeration ×", size:"combine size ×", follow:"follow", hdr:"header", down:"lowered", up:"raised",
-  maps:"Maps shown", view:"View", all:"All", row:"row", grid:"grid", stack:"stack", focus:"focus",
+  maps:"Maps shown", cover:"coverage", mean:"mean", low:"The measurement covers less than half of the cut area", probe:"Hover a map: values at the same spot on every map", nov:"no value", exn:"Heights ×", sz:"combine ×", view:"View", all:"All", row:"row", grid:"grid", stack:"stack", focus:"focus",
   hint:"Drag: rotate · wheel: zoom · right button: pan · double-click a map: focus, empty space: all", grey:"Grey: cut, but the record is flagged or has no reading."};
 const $ = id => document.getElementById(id);
 for (const k of ["speed","layout","exag","size","follow","hdr"]) $("l_"+k).textContent = T[k];
 $("h_maps").textContent = T.maps; $("h_view").textContent = T.view; $("all").textContent = T.all; $("ttl").textContent = D.title;
+$("h_probe").textContent = FI ? "Arvot kohdassa" : "Values at the spot"; $("probe").textContent = T.probe;
 $("grey").textContent = T.grey; $("attr").textContent = T.hint + (D.terrain.attribution ? " · " + D.terrain.attribution : "");
 $("toggle").onclick = () => $("panel").classList.toggle("collapsed");
 for (const [v, l] of [["row", T.row], ["grid", T.grid], ["stack", T.stack]]){ const o = document.createElement("option"); o.value = v; o.textContent = l; $("layout").appendChild(o); }
@@ -80,6 +82,7 @@ const px = x => x/W*CW, py = y => (H-y)/H*CH;
 
 const geo = new THREE.PlaneGeometry(W, H, TR.nx-1, TR.ny-1);
 geo.rotateX(-Math.PI/2); geo.translate(W/2, 0, -H/2);
+function scaleNote(){ $("scale").textContent = `${T.exn}${TE.exag} · ${T.sz}${csize}` + (FI ? " (ei mittakaavassa)" : " (not to scale)"); }
 function applyExag(){
   const pos = geo.attributes.position;
   for (let k=0;k<pos.count;k++) pos.setY(k, TE.at(pos.getX(k), -pos.getZ(k)));
@@ -156,7 +159,8 @@ function buildList(){
     if (L.available){
       const cv = document.createElement("canvas"); cv.width = 128; cv.height = 8; const c = cv.getContext("2d");
       for (let i=0;i<128;i++){ c.fillStyle = colour(key, i/127); c.fillRect(i,0,1,8); }
-      const rg = document.createElement("div"); rg.className = "rng"; rg.innerHTML = `<span>${L.range[0].toFixed(1)}</span><span>${L.range[1].toFixed(1)}</span>`;
+      const rg = document.createElement("div"); rg.className = "rng"; rg.innerHTML = `<span>${L.range[0].toFixed(1)}</span><span>${T.cover} ${Math.round(L.coverage*100)} % · ${T.mean} ${L.mean}</span><span>${L.range[1].toFixed(1)}</span>`;
+      if (L.coverage < 0.5) rg.title = T.low;
       row.append(cv, rg);
     } else { const w = document.createElement("div"); w.className = "why"; w.textContent = L.reason; row.append(w); }
     cb.onchange = () => {
@@ -209,11 +213,39 @@ function update(force){
 }
 $("play").onclick = () => { playing = !playing; if (playing && tPlay >= END) tPlay = 0; $("play").textContent = playing ? "❚❚" : "▶"; };
 slider.oninput = () => { tPlay = slider.value/1000*END; update(); };
-$("exag").oninput = e => { TE.exag = +e.target.value; applyExag(); update(); };
-$("size").oninput = e => { csize = +e.target.value; update(); };
+$("exag").oninput = e => { TE.exag = +e.target.value; applyExag(); update(); scaleNote(); };
+$("size").oninput = e => { csize = +e.target.value; update(); scaleNote(); };
 $("layout").onchange = () => layout(true);
 $("all").onclick = () => fitAll(true);
+// --- linked probe: the same spot on every map -----------------------------------------
+const CELL = 4, GX = Math.ceil(W/CELL), GY = Math.ceil(H/CELL), spot = new Int32Array(GX*GY).fill(-1);
+for (let i=0;i<N;i++){ const p = D.poly[i]; if (!p || !D.cut[i]) continue;
+  const x0=Math.min(p[0],p[2],p[4],p[6]), x1=Math.max(p[0],p[2],p[4],p[6]), y0=Math.min(p[1],p[3],p[5],p[7]), y1=Math.max(p[1],p[3],p[5],p[7]);
+  for (let gy=Math.max(0,Math.floor(y0/CELL)); gy<=Math.min(GY-1,Math.floor(y1/CELL)); gy++)
+    for (let gx=Math.max(0,Math.floor(x0/CELL)); gx<=Math.min(GX-1,Math.floor(x1/CELL)); gx++) spot[gy*GX+gx] = i; }
+const markMat = new THREE.MeshBasicMaterial({color:0x111111}), markGeo = new THREE.SphereGeometry(1, 12, 8);
+function probeAt(x, y){
+  for (const k of visible){ const t = tiles[k]; if (!t.mark){ t.mark = new THREE.Mesh(markGeo, markMat); t.group.add(t.mark); }
+    t.mark.visible = true; t.mark.position.set(x, TE.at(x, y) + 1.5, -y); t.mark.scale.setScalar(Math.max(2, W/150)); }
+  const gx = Math.floor(x/CELL), gy = Math.floor(y/CELL), i = (gx>=0 && gy>=0 && gx<GX && gy<GY) ? spot[gy*GX+gx] : -1;
+  let h = "";
+  if (i < 0 || i >= upper(tPlay)) h = `<i>${T.nov}</i>`;
+  else { h = `<b>${fmtTime(D.t[i])}</b><br>`;
+    for (const k of D.order){ const L = D.layers[k]; if (!L.available) continue; const v = L.values[i];
+      h += `${L.label}: <b>${v === null ? T.nov : v.toFixed(2)}</b><br>`; } }
+  h += `${FI ? "korkeus" : "elevation"}: ${(D.terrain.base + TE.raw(x, y)).toFixed(1)} m`;
+  $("probe").innerHTML = h;
+}
 const ray = new THREE.Raycaster();
+S.renderer.domElement.addEventListener("pointermove", ev => {
+  if (ev.buttons) return;
+  const r = S.renderer.domElement.getBoundingClientRect();
+  const ndc = new THREE.Vector2(((ev.clientX-r.left)/r.width)*2-1, -((ev.clientY-r.top)/r.height)*2+1);
+  ray.setFromCamera(ndc, camera);
+  const hit = ray.intersectObjects(visible.map(k => tiles[k].mesh), false)[0];
+  if (!hit){ for (const k of visible) if (tiles[k].mark) tiles[k].mark.visible = false; $("probe").textContent = T.probe; return; }
+  const lp = hit.object.parent.worldToLocal(hit.point.clone()); probeAt(lp.x, -lp.z);
+});
 S.renderer.domElement.addEventListener("dblclick", ev => {
   const r = S.renderer.domElement.getBoundingClientRect();
   ray.setFromCamera(new THREE.Vector2(((ev.clientX-r.left)/r.width)*2-1, -((ev.clientY-r.top)/r.height)*2+1), camera);
@@ -221,7 +253,7 @@ S.renderer.domElement.addEventListener("dblclick", ev => {
   if (hit) focusTile(hit.object.userData.key); else fitAll(true);
 });
 
-applyExag(); buildList(); layout(false); fitAll(false); update(true);
+applyExag(); buildList(); layout(false); fitAll(false); update(true); scaleNote();
 const tmp = new THREE.Vector3();
 let last = performance.now();
 S.renderer.setAnimationLoop(now => {

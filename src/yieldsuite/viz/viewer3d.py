@@ -116,6 +116,13 @@ def build_html(
         if lay.available:
             entry["values"] = r(lay.values, 2)
             entry["range"] = [round(v, 3) for v in colour_range(lay.values)]
+            cut = track.cut if track.cut is not None else track.header_down
+            area = np.array([0.0 if p is None or p.is_empty else p.area for p in track.polygons])
+            tot = float(area[cut].sum())
+            has = float(area[cut & np.isfinite(lay.values)].sum())
+            entry["coverage"] = round(has / tot, 3) if tot > 0 else 0.0
+            v = lay.values[np.isfinite(lay.values)]
+            entry["mean"] = round(float(v.mean()), 2) if v.size else None
         out_layers[key] = entry
     visible = [k for k in shown if out_layers.get(k, {}).get("available")]
     ring = []

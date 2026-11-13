@@ -7,8 +7,10 @@ In the server deployment each stage becomes a Dagster asset.
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from pathlib import Path
 
 import numpy as np
 
@@ -42,6 +44,7 @@ class RunSummary:
     outputs: dict[str, str] = field(default_factory=dict)
     notes: list[str] = field(default_factory=list)
     error: str | None = None
+    certainty: dict | None = None
 
     @property
     def ok(self) -> bool:
@@ -76,6 +79,18 @@ def run(config: FieldYearConfig, to_level: Level, from_level: Level = Level.L1A)
 
     started = now_utc()
     summary = _run(config, to_level, from_level)
+    if summary.completed:
+        # what is known, estimated, assumed and missing, and what to ask for
+        try:
+            from . import certainty
+
+            res = certainty.assess(config)
+            path = Path(config.output_dir) / f"{config.field_id}_{config.year}_certainty.json"
+            path.write_text(json.dumps(res, indent=2, ensure_ascii=False))
+            summary.outputs["certainty"] = str(path)
+            summary.certainty = res
+        except Exception as exc:  # noqa: BLE001 - never hide the products behind this
+            summary.notes.append(f"FAILED certainty summary: {type(exc).__name__}: {exc}")
     if summary.completed or summary.error:
         from .audit import write_run_manifest
 

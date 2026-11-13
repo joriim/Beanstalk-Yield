@@ -125,6 +125,32 @@ spans zones 34–36: western Finland (e.g. Seinäjoki, tile 34VEQ) is
 field: `yieldsuite s2-search` prints the EPSG code of the field's tiles. With EPSG:3067 each cell is averaged from the
 pixels it overlaps, which smooths slightly.
 
+## Prediction and gap fill: IPAR, GPP or RUE
+
+Yield is predicted, and the empty cells are filled, from light use, not from a statistical
+image model (`l5/lightuse.py`; needs `crop.sowing_date`):
+
+| `light_use.fill` | Model |
+|---|---|
+| `ipar` | Y = RUE × IPAR, one field RUE (median of Y / IPAR on the measured cells) |
+| `gpp` | Y = k × GPP: IPAR weighted by the daily temperature limit f(T) |
+| `rue` | Y = RUE(x) × IPAR, RUE varying over the field (distance-weighted, `rue_sigma_m` 30 m) |
+| `image` | the earlier statistical model on image features (kept as an option) |
+| `auto` (default) | the best of `ipar`, `gpp`, `rue` in spatial block cross-validation |
+
+Kriging of the residuals is added in every case. The model card (`light_use.fill_candidates`)
+holds the block-CV error of all three, of the field mean (no model) and of the image model.
+When the best two light-use models are within 2 % (`min_gain`) there is no clear winner:
+`prefer` (default `gpp`) is used, the run says so and the user can pick. When no model beats
+the field mean, the certainty summary says that the filled values are in practice local
+averages and asks which model to use.
+
+On the four fields of 2026 the three light-use models were not better than the field mean
+within the field (block-CV RMSE: ipar 1.16, gpp 1.15, rue 1.07, mean 1.05 t/ha on one of
+them), while the statistical image model was (0.76): NDVI saturates in a closed cereal canopy,
+so intercepted light varies little inside a field. Light use explains differences between
+fields and years better than within a field. `fill: image` remains available for that reason.
+
 ## Was the unlogged area harvested?
 
 When the critical review flags field area without harvest records (`unlogged`
