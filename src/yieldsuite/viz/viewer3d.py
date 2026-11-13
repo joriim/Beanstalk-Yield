@@ -20,8 +20,9 @@ import numpy as np
 
 from .timelapse import LABEL, LAYER_ORDER, PALETTE, Track, choose_layers, colour_range
 
-VENDOR = Path(__file__).parent / "vendor"
-TEMPLATE = Path(__file__).parent / "viewer3d.html"
+TEMPLATE_DIR = Path(__file__).parent
+VENDOR = TEMPLATE_DIR / "vendor"
+TEMPLATE = TEMPLATE_DIR / "viewer3d.html"
 
 
 def _terrain(dem_path, x0, y0, x1, y1, step: float):

@@ -75,3 +75,7 @@ extend-exclude = ["qgis_plugin"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP", "NPY"]
+
+[tool.ruff.lint.per-file-ignores]
+# captions are prose in two languages
+"src/yieldsuite/viz/gapstory.py" = ["E501"]

@@ -59,6 +59,7 @@ def run_sentinel2_fusion(
     stem = f"L5_{config.field_id}_{config.year}"
 
     parts = []
+    remapped = False
     if request is not None:
         features_path = Path(features_path) if features_path else out / f"{stem}_s2_features.csv"
         s2 = _cached_features(features_path, grid, config.crs)
@@ -71,6 +72,11 @@ def run_sentinel2_fusion(
                 s2 = _remap_stale_features(features_path, grid)
                 if s2 is None:
                     raise
+                # keep the moved features, so later runs and the gap-fill story find them;
+                # cells outside the earlier grid have no Sentinel-2 features
+                save_features(s2, features_path)
+                _grid_sidecar(features_path).write_text(json.dumps(_grid_signature(grid)))
+                remapped = True
             else:
                 save_features(s2, features_path)
                 _grid_sidecar(features_path).write_text(json.dumps(_grid_signature(grid)))
@@ -131,6 +137,11 @@ def run_sentinel2_fusion(
         field_mask=field_mask,
         vendor_harmonised=vendor,
     )
+    if remapped:
+        result.model_card["sentinel2_features_remapped"] = (
+            "Sentinel-2 could not be fetched for the new grid: features moved from the earlier "
+            "grid; cells outside it have no Sentinel-2 features"
+        )
     result.model_card.update(
         field_id=config.field_id,
         year=config.year,

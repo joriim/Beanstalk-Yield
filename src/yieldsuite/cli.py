@@ -380,6 +380,40 @@ def _cmd_timelapse(args) -> int:
     return 0
 
 
+def _cmd_gapfill_story(args) -> int:
+    from .viz import gapstory
+
+    cfg = load_config(args.config)
+    out = Path(args.out or Path(cfg.output_dir) / "viz")
+    story = gapstory.load_story(cfg)
+    boundary = None
+    if cfg.boundary is not None and Path(cfg.boundary).exists():
+        import geopandas as gpd
+
+        boundary = gpd.read_file(cfg.boundary).to_crs(cfg.crs)
+    dem = Path(args.dem) if args.dem else Path(cfg.output_dir) / "dem_2m.tif"
+    if args.no_dem or not dem.exists():
+        dem = None
+    f = story.facts
+    print(
+        f"measured {f['measured_ha']:.2f} ha, filled {f['gap_ha']:.2f} ha, "
+        f"empty {f['empty_ha']:.2f} ha; {f['n_s2']} Sentinel-2 dates, "
+        f"{f['n_planet']} PlanetScope scenes"
+    )
+    stem = f"{cfg.field_id}_{cfg.year}"
+    title = (f"Lohko {cfg.field_id} · tyhjien kohtien täyttö {cfg.year}" if args.lang == "fi"
+             else f"Field {cfg.field_id} · gap fill {cfg.year}")
+    if not args.no_html:
+        page = gapstory.build_html(
+            story, out / f"{stem}_gapfill_3d.html", boundary, dem, title, args.lang
+        )
+        print("3D story:", page)
+    if not args.no_video:
+        vid = gapstory.write_video(story, out / f"{stem}_gapfill.mp4", boundary, dem, args.lang)
+        print("video:", vid)
+    return 0
+
+
 def _cmd_s2_search(args) -> int:
     from .l4.io import read_bands
     from .public.field import field_bbox_wgs84
@@ -698,6 +732,18 @@ def build_parser() -> argparse.ArgumentParser:
     tl.add_argument("--layout", choices=["row", "grid", "stack"], default="row",
                     help="3D viewer: how the maps are placed (default row)")
     tl.set_defaults(func=_cmd_timelapse)
+
+    gf = sub.add_parser(
+        "gapfill-story", help="timelapse of how the empty parts of the map are filled"
+    )
+    gf.add_argument("config")
+    gf.add_argument("--out", help="folder (default <output_dir>/viz)")
+    gf.add_argument("--dem", help="DEM GeoTIFF (default <output_dir>/dem_2m.tif if present)")
+    gf.add_argument("--no-dem", action="store_true")
+    gf.add_argument("--no-video", action="store_true")
+    gf.add_argument("--no-html", action="store_true")
+    gf.add_argument("--lang", choices=["fi", "en"], default="fi")
+    gf.set_defaults(func=_cmd_gapfill_story)
 
     s2 = sub.add_parser("s2-search", help="list Sentinel-2 scenes over the field (STAC)")
     s2.add_argument("config")

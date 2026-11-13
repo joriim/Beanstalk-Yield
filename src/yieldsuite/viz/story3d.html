@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="fi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>__TITLE__</title>
+<style>
+:root{--bg:#dfe7ee;--panel:rgba(255,255,255,.93);--text:#1f2933;--muted:#5f6b76;--accent:#2b8a3e;--line:#c9d3dc}
+@media (prefers-color-scheme:dark){:root{--bg:#141a20;--panel:rgba(28,34,41,.93);--text:#e6edf3;--muted:#9aa7b3;--accent:#51cf66;--line:#38434e}}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--text);font:14px/1.4 system-ui,-apple-system,"Segoe UI",sans-serif;overflow:hidden}
+#view{position:fixed;inset:0}
+#panel{position:fixed;top:12px;left:12px;width:330px;max-width:calc(100vw - 24px);max-height:calc(100vh - 24px);overflow:auto;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px 14px;box-shadow:0 4px 18px rgba(0,0,0,.15);backdrop-filter:blur(6px)}
+#panel h1{font-size:15px;margin:0 0 6px}
+#ct{font-size:17px;font-weight:700;margin:8px 0 2px}#cx{margin:0 0 8px}
+.row{display:flex;align-items:center;gap:8px;margin:6px 0}.row label{flex:0 0 96px;color:var(--muted);font-size:12px}
+.row input[type=range],.row select{flex:1;min-width:0}
+button{font:inherit;border:1px solid var(--line);background:var(--accent);color:#fff;border-radius:6px;padding:4px 10px;cursor:pointer}
+button.sec{background:transparent;color:var(--text)}
+#chs{display:flex;flex-wrap:wrap;gap:4px;margin:8px 0}#chs button{font-size:12px;padding:2px 8px}#chs button.on{background:var(--accent);color:#fff}
+#srcs{font:12px/1.5 ui-monospace,Menlo,Consolas,monospace;margin:6px 0}#srcs div{color:var(--muted)}#srcs div.on{color:#c92a2a;font-weight:700}#srcs div.done{color:var(--text)}
+#leg canvas{width:100%;height:10px;border-radius:2px}#leg .e{display:flex;justify-content:space-between;font-size:11px;color:var(--muted)}
+.muted{color:var(--muted);font-size:11px}#toggle{display:none}
+@media (max-width:560px){#panel{top:auto;bottom:8px;left:8px;right:8px;width:auto;max-height:55vh}#panel.collapsed .body{display:none}#toggle{display:inline-block}}
+</style>
+</head>
+<body>
+<div id="view"></div>
+<div id="panel">
+  <div style="display:flex;justify-content:space-between;align-items:center"><h1 id="ttl"></h1><button id="toggle" class="sec">☰</button></div>
+  <div class="body">
+    <div class="row"><button id="play">▶</button><input id="time" type="range" min="0" max="1000" value="0" step="1"></div>
+    <div id="ct"></div><p id="cx"></p>
+    <div id="chs"></div>
+    <div id="srcs"></div>
+    <div id="leg"><div id="ll" class="muted"></div><canvas id="lc" width="256" height="10"></canvas><div class="e"><span id="l0"></span><span id="l1"></span></div></div>
+    <div class="row"><label id="l_speed"></label><select id="speed"><option>0.5</option><option selected>1</option><option>2</option><option>4</option></select></div>
+    <div class="row"><label id="l_exag"></label><input id="exag" type="range" min="1" max="10" step="0.5" value="3"><span id="exagv"></span></div>
+    <p class="muted" id="attr"></p>
+  </div>
+</div>
+<script>/*THREE*/</script>
+<script>/*ORBIT*/</script>
+<script type="module">
+/*COMMON*/
+const D = await unpack("/*DATA*/");
+const FI = D.lang === "fi", $ = id => document.getElementById(id);
+$("ttl").textContent = D.title; $("l_speed").textContent = FI ? "nopeus ×" : "speed ×"; $("l_exag").textContent = FI ? "korostus ×" : "exaggeration ×";
+$("attr").textContent = (FI ? "Vedä: käännä · rulla: zoomaa · oikea painike: siirrä" : "Drag: rotate · wheel: zoom · right button: pan") + (D.terrain.attribution ? " · " + D.terrain.attribution : "");
+$("toggle").onclick = () => $("panel").classList.toggle("collapsed");
+
+const S = initScene($("view")), TR = D.terrain, TE = makeTerrain(TR), W = TE.W, H = TE.H, G = D.grid;
+const base = makeHillshade(TR), CW = 2048, CH = Math.max(256, Math.round(CW*H/W));
+const canvas = document.createElement("canvas"); canvas.width = CW; canvas.height = CH; const ctx = canvas.getContext("2d");
+const tex = new THREE.CanvasTexture(canvas); tex.anisotropy = 8;
+const geo = new THREE.PlaneGeometry(W, H, TR.nx-1, TR.ny-1); geo.rotateX(-Math.PI/2); geo.translate(W/2, 0, -H/2);
+S.scene.add(new THREE.Mesh(geo, new THREE.MeshLambertMaterial({map:tex})));
+function applyExag(){ const p = geo.attributes.position; for (let k=0;k<p.count;k++) p.setY(k, TE.at(p.getX(k), -p.getZ(k))); p.needsUpdate = true; geo.computeVertexNormals(); $("exagv").textContent = TE.exag; }
+$("exag").oninput = e => { TE.exag = +e.target.value; applyExag(); };
+
+const px = x => x/W*CW, py = y => (H-y)/H*CH, cw = G.res/W*CW, chh = G.res/H*CH;
+const [yl, yh] = D.yrange, [nl, nh] = D.ndvi;
+const grey = [171,171,171,0.65];
+function paintCell(i, c){
+  const r = Math.floor(i/G.nx), q = i % G.nx;
+  ctx.fillStyle = `rgba(${c[0]},${c[1]},${c[2]},${c[3]})`;
+  ctx.fillRect(Math.floor(px(G.gx0 + q*G.res)), Math.floor(py(G.gy1 - r*G.res)), Math.ceil(cw)+1, Math.ceil(chh)+1);
+}
+const yc = v => rgb("yield", (v-yl)/(yh-yl)).concat([1]);
+function draw(ch, u){
+  ctx.drawImage(base, 0, 0, CW, CH);
+  const n = G.nx*G.ny;
+  for (let i=0;i<n;i++){
+    if (!D.mask[i]) continue;
+    let c;
+    if (ch.kind === "source"){
+      const fr = D.frames[ch.frame], v = fr.values[i];
+      c = v === null ? grey : rgb("ndvi", (v-fr.range[0])/(fr.range[1]-fr.range[0])).concat([1]);
+    } else if (D.measured[i] !== null){ c = yc(D.measured[i]); }
+    else if (!D.gap[i]){ c = grey; }
+    else if (ch.kind === "measured"){ c = grey; }
+    else if (D.pred[i] === null || D.final[i] === null){ c = grey; }
+    else if (ch.kind === "model"){ const p = yc(D.pred[i]); c = [p[0]*u+grey[0]*(1-u), p[1]*u+grey[1]*(1-u), p[2]*u+grey[2]*(1-u), grey[3]*(1-u)+u]; }
+    else if (ch.kind === "krige"){
+      const w = 0.25, p = Math.min(1, Math.max(0, (u*(1+w) - D.rank[i])/w)), v = D.pred[i] + (D.final[i]-D.pred[i])*p; c = yc(v);
+      if (p > 0 && p < 1) c = [c[0]*0.6+102, c[1]*0.6+102, c[2]*0.6+102, 1];
+    } else { c = yc(D.final[i]); c = [c[0]*0.8+51, c[1]*0.8+51, c[2]*0.8+51, 1]; }
+    paintCell(i, c);
+  }
+  ctx.strokeStyle = "#1f2933"; ctx.lineWidth = 3;
+  for (const r of D.boundary){ ctx.beginPath(); for (let k=0;k<r.length;k+=2){ const X=px(r[k]), Y=py(r[k+1]); k?ctx.lineTo(X,Y):ctx.moveTo(X,Y);} ctx.stroke(); }
+  tex.needsUpdate = true;
+}
+// --- timeline ------------------------------------------------------------------------
+const chs = D.chapters, starts = []; let TOT = 0; for (const c of chs){ starts.push(TOT); TOT += c.dur; }
+let t = 0, playing = false, curKey = "";
+const fmt = d => { const [y,m,dd] = d.split("-"); return `${+dd}.${+m}.${y}`; };
+const groups = [...new Set(chs.map(c => c.title.split(" ")[0]))];
+const cb = $("chs");
+groups.forEach(gname => { const b = document.createElement("button"); b.className = "sec"; b.textContent = gname;
+  b.onclick = () => { t = starts[chs.findIndex(c => c.title.startsWith(gname+" "))] + 0.01; playing = false; $("play").textContent = "▶"; show(true); }; b.dataset.g = gname; cb.appendChild(b); });
+const sb = $("srcs");
+if (D.frames.length){ chs.forEach((c, j) => { if (c.kind !== "source") return; const f = D.frames[c.frame]; const d = document.createElement("div"); d.id = "s"+j; d.textContent = `${f.source === "sentinel2" ? "S2" : "PS"} ${fmt(f.date)}`; sb.appendChild(d); }); }
+function legend(kind, frame){
+  const c = $("lc").getContext("2d"), pal = kind === "source" ? "ndvi" : "yield";
+  const lo = kind === "source" ? D.frames[frame].range[0] : yl, hi = kind === "source" ? D.frames[frame].range[1] : yh;
+  for (let i=0;i<256;i++){ c.fillStyle = colour(pal, i/255); c.fillRect(i,0,1,10); }
+  $("ll").textContent = kind === "source" ? "NDVI" : (FI ? "sato (t/ha)" : "yield (t/ha)");
+  $("l0").textContent = lo.toFixed(2); $("l1").textContent = hi.toFixed(2);
+}
+function show(force){
+  let i = starts.length-1; while (i > 0 && t < starts[i]) i--;
+  const ch = chs[i], u = Math.min(1, (t - starts[i])/ch.dur), key = i + ":" + (ch.kind === "model" || ch.kind === "krige" ? Math.round(u*60) : 0);
+  if (key !== curKey || force){ curKey = key; draw(ch, u); }
+  $("ct").textContent = ch.title; $("cx").textContent = ch.text; legend(ch.kind, ch.frame);
+  for (const b of cb.children) b.classList.toggle("on", ch.title.startsWith(b.dataset.g + " "));
+  chs.forEach((c, j) => { const e = $("s"+j); if (e){ e.className = j === i ? "on" : (t >= starts[j] ? "done" : ""); e.textContent = e.textContent.replace(/^[▶·] /, "").replace(/^/, j === i ? "▶ " : "· "); } });
+  $("time").value = Math.round(t/TOT*1000);
+}
+$("play").onclick = () => { playing = !playing; if (playing && t >= TOT) t = 0; $("play").textContent = playing ? "❚❚" : "▶"; };
+$("time").oninput = e => { t = e.target.value/1000*TOT; show(true); };
+applyExag(); S.fitBox(0, W, -H, 0, false); show(true);
+let last = performance.now();
+S.renderer.setAnimationLoop(now => {
+  const dt = Math.min(0.1, (now-last)/1000); last = now;
+  if (playing){ t = Math.min(TOT, t + dt * +$("speed").value); if (t >= TOT){ playing = false; $("play").textContent = "▶"; } show(false); }
+  S.stepCamera(dt); S.controls.update(); S.renderer.render(S.scene, S.camera);
+});
+</script>
+</body>
+</html>
