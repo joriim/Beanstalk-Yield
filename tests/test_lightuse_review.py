@@ -1,0 +1,160 @@
+"""Light use (IPAR, GPP, RUE fill), the critical review and the FMI radiation model."""
+
+from datetime import date
+
+import numpy as np
+import pandas as pd
+import pytest
+
+from yieldsuite.l4.grid import Grid
+from yieldsuite.l5.lightuse import (
+    LightUseSettings,
+    choose_fill,
+    clear_sky_par,
+    light_use,
+    temperature_scalar,
+)
+
+S = LightUseSettings(enabled=True, fill="auto")
+
+
+def test_temperature_scalar_trapezoid():
+    f = temperature_scalar([-5, 7.5, 20, 30, 40, np.nan], S)
+    assert np.allclose(f[:5], [0, 0.5, 1, 0.5, 0]) and f[5] == 1
+
+
+def test_ipar_gpp_scale_with_greenness_and_temperature():
+    days = pd.date_range("2026-05-10", "2026-08-30", freq="D")
+    par = pd.Series(8.0, index=days)
+    dates = pd.to_datetime(["2026-06-01", "2026-07-01", "2026-08-01"])
+    ndvi = pd.DataFrame({0: [0.4, 0.8, 0.6], 1: [0.4, 0.6, 0.4]}, index=dates)
+    out = light_use(ndvi, par, date(2026, 5, 10), date(2026, 8, 30), S)
+    assert out["ipar_mj_m2"][0] > out["ipar_mj_m2"][1] > 0
+    assert np.allclose(out["gpp_g_c_m2"], S.eps_g_c_mj * out["ipar_mj_m2"])  # no temperature
+    cold = light_use(ndvi, par, date(2026, 5, 10), date(2026, 8, 30), S, pd.Series(7.5, index=days))
+    assert np.allclose(cold["gpp_g_c_m2"], 0.5 * out["gpp_g_c_m2"])
+
+
+def test_clear_sky_par_longer_days_in_june():
+    p = clear_sky_par(62.5, pd.to_datetime(["2026-03-21", "2026-06-21"]))
+    assert p.iloc[1] > 2 * p.iloc[0] > 0
+
+
+def test_light_models_compared_and_chosen():
+    from yieldsuite.l5.lightuse import compare_models, local_ratio, predict
+
+    rng = np.random.default_rng(0)
+    rows, cols = np.divmod(np.arange(400), 20)
+    xy = np.c_[cols * 10.0, rows * 10.0]
+    ipar = 800 + 200 * np.sin(cols / 4)
+    train = np.ones(400, bool)
+    # (a) yield follows light with one RUE: ipar and gpp fit, rue adds nothing
+    y = 0.012 * ipar + rng.normal(0, 0.2, 400)
+    c = compare_models(y, ipar, ipar * 1.7, train, rows, cols, xy, S)
+    assert abs(c["ipar"]["ratio"] - 0.012) < 5e-4 and c["ipar"]["cv_rmse"] < 0.3
+    assert c["ipar"]["cv_rmse"] < 0.5 * c["mean"]["cv_rmse"]
+    name, why, clear = choose_fill(None, c, S)
+    assert name == "gpp" and not clear and "no clear winner" in why  # preferred among equals
+    assert choose_fill(None, c, LightUseSettings(fill="auto", prefer="ipar"))[0] == "ipar"
+    assert choose_fill(None, c, LightUseSettings())[0] == "image"  # the default
+    # (b) RUE differs between the two halves of the field: the local RUE wins clearly
+    rue = np.where(cols < 10, 0.008, 0.014)
+    y2 = rue * ipar + rng.normal(0, 0.2, 400)
+    c2 = compare_models(y2, ipar, ipar * 1.7, train, rows, cols, xy, S)
+    name, why, clear = choose_fill(None, c2, S)
+    assert name == "rue" and clear and c2["rue"]["cv_rmse"] < 0.7 * c2["ipar"]["cv_rmse"]
+    lr = local_ratio(y2, ipar, train, xy, 30.0)
+    assert abs(lr[cols < 5].mean() - 0.008) < 1e-3 and abs(lr[cols > 14].mean() - 0.014) < 1e-3
+    pred = predict("rue", y2, ipar, ipar, train & (rows > 2), xy, S)
+    assert np.isfinite(pred).all()  # cells without training data still get a value
+    # the user's choice wins; the image model stays available
+    assert choose_fill(1.0, c2, LightUseSettings(fill="ipar"))[:1] == ("ipar",)
+    assert choose_fill(1.0, c2, LightUseSettings(fill="image"))[0] == "image"
+    assert choose_fill(1.0, {"ipar": {"cv_rmse": None}}, S)[0] == "image"
+
+def _records(grid, rng, drift=0.0, deficit_box=None):
+    """Clean records on a 30 x 30 m grid of 10 m cells, passes along x."""
+    rows = []
+    t = 0.0
+    for p in range(30):
+        ys = grid.ymax - 2 - p * 3.2
+        xs = np.arange(2.0, 298.0, 1.2)
+        if p % 2:
+            xs = xs[::-1]
+        for x in xs:
+            rows.append((t, x, ys, np.pi / 2 if p % 2 == 0 else 3 * np.pi / 2, 1.2))
+            t += 1.0
+    df = pd.DataFrame(rows, columns=["t", "x", "y", "heading", "speed"])
+    df["hx"], df["hy"], df["length"] = df["x"], df["y"], 0.0
+    df["header_down"], df["flags"], df["machine_id"] = True, 0, "m1"
+    base = 8.0 + drift * (df["t"] / df["t"].max())
+    if deficit_box:
+        x0, x1, y0, y1 = deficit_box
+        inside = (df.x > x0) & (df.x < x1) & (df.y > y0) & (df.y < y1)
+        base = base - 3.0 * inside
+    df["yield"] = base + rng.normal(0, 0.2, len(df))
+    return df
+
+
+def test_review_finds_drift_deficit_and_unlogged():
+    from yieldsuite.l5.review import review
+
+    rng = np.random.default_rng(1)
+    grid = Grid(xmin=0.0, ymax=100.0, resolution=10.0, nx=30, ny=10)
+    pred = np.full((10, 30), 8.0)
+    rec = _records(grid, rng, drift=-1.6, deficit_box=(100, 160, 40, 80))
+    y4 = np.full((10, 30), np.nan)
+    ci = np.floor((grid.ymax - rec.y) / 10).astype(int) * 30 + np.floor(rec.x / 10).astype(int)
+    m = rec.assign(c=ci).groupby("c")["yield"].mean()
+    y4.ravel()[m.index] = m.values
+    y4[:, 25:] = np.nan  # an unlogged strip
+    nrec = np.where(np.isfinite(y4), 5.0, 0.0)
+    out = review(rec, grid, {"yield": y4, "n_records": nrec}, pred)
+    by = {c["id"]: c for c in out["checks"]}
+    assert by["drift"]["value"] < -10 and by["drift"]["severity"] == "alert"
+    assert by["deficit"]["severity"] in ("watch", "alert") and by["deficit"]["clusters"]
+    assert by["unlogged"]["value"] == pytest.approx(5 / 30 * 100, abs=0.5)
+    assert by["unlogged"]["predicted_grain_t"] == pytest.approx(8.0 * 50 * 100 / 1e4, rel=0.01)
+    assert by["direction"]["severity"] == "ok"
+    assert "fi" in by["drift"]["finding"] and "en" in by["drift"]["finding"]
+
+
+def test_fmi_parse_and_cloud_radiation_model():
+    from yieldsuite.weather import fmi
+
+    xml = b"""<wfs:FeatureCollection xmlns:wfs="http://www.opengis.net/wfs/2.0"
+      xmlns:BsWfs="http://xml.fmi.fi/schema/wfs/2.0" xmlns:gml="http://www.opengis.net/gml/3.2">
+      <wfs:member><BsWfs:BsWfsElement><BsWfs:Location><gml:Point><gml:pos>62.68 22.84 </gml:pos>
+      </gml:Point></BsWfs:Location><BsWfs:Time>2026-07-01T09:00:00Z</BsWfs:Time>
+      <BsWfs:ParameterName>n_man</BsWfs:ParameterName><BsWfs:ParameterValue>8.0</BsWfs:ParameterValue>
+      </BsWfs:BsWfsElement></wfs:member></wfs:FeatureCollection>"""
+    df = fmi.parse_simple(xml)
+    assert df.iloc[0]["parameter"] == "n_man" and df.iloc[0]["value"] == 8.0
+    times = pd.date_range("2026-06-21", periods=48, freq="h", tz="UTC")
+
+    def frame(n):
+        return pd.DataFrame(
+            {"time": times, "lat": 62.68, "lon": 22.84, "parameter": "n_man", "value": n}
+        )
+
+    clear = fmi.modelled_daily_radiation(frame(0.0), 62.68, 22.84)
+    cloudy = fmi.modelled_daily_radiation(frame(8.0), 62.68, 22.84)
+    assert 25 < clear.iloc[0] < 35  # a clear midsummer day at 62.7 N
+    assert cloudy.iloc[0] == pytest.approx(0.25 * clear.iloc[0], rel=0.01)
+
+
+def test_season_table_degree_days_and_modelled_soil():
+    from yieldsuite.weather.season import model_soil_temperature, season_table
+
+    days = pd.date_range("2026-05-01", "2026-09-30", freq="D")
+    w = pd.DataFrame({"temperature_2m_mean": 15.0, "shortwave_radiation_sum": 20.0}, index=days)
+    w.iloc[:5, 0] = 5.0
+    t, s = season_table(w, date(2026, 5, 10), date(2026, 8, 17))
+    assert s["days"] == 100 and s["gdd_air"] == pytest.approx(100 * 10.0)
+    assert s["radiation_mj_m2"] == pytest.approx(2000.0) and s["par_mj_m2"] == pytest.approx(960.0)
+    assert "modelled" in s["soil_temperature_source"]
+    soil = model_soil_temperature(pd.Series([0.0, 10, 10, 10, 10]), tau_days=2)
+    assert soil.iloc[1] == pytest.approx(5.0) and soil.iloc[-1] < 10  # lags behind the air
+    w["soil_temperature_0_to_7cm"] = 12.0
+    _, s2 = season_table(w, date(2026, 5, 10), date(2026, 8, 17))
+    assert s2["soil_temperature_source"].startswith("ERA5") and s2["gdd_soil"] == pytest.approx(700)

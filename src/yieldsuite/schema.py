@@ -48,6 +48,8 @@ RECORD_COLUMNS: dict[str, str] = {
     "force": "impact-plate force [N] (true L0 only)",
     "elevator_speed": "elevator shaft speed [rad/s] (true L0 only)",
     "moisture": "grain moisture [% wet basis]",
+    "moisture_sensor": "moisture as logged by the combine [% wet basis]",
+    "vendor_dry_moisture": "vendor reference moisture of a dry/standard yield, else NaN [%]",
     "mass_flow_wet": "wet mass flow [kg/s]",
     "mass_flow_ref": "mass flow at reference moisture [kg/s]",
     "applied_delay": "flow delay applied [s]",
@@ -65,4 +67,14 @@ L4_BANDS: tuple[str, ...] = (
     "spread",  # area-weighted SD of record yields in the cell
     "flagged_share",  # share of harvested area from flagged records
     "passes",  # number of distinct passes
+)
+
+# Bands of the L5 GeoTIFF, in order.
+L5_BANDS: tuple[str, ...] = (
+    "yield",  # t/ha: measured where reliable, filled from imagery elsewhere
+    "source",  # 0 no value, 1 measured (L4), 2 filled from imagery
+    "sigma",  # standard error of filled cells [t/ha]
+    "prediction",  # image-model prediction f(V) for every cell
+    "relative_yield",  # yield as % of the field mean
+    "coverage",  # L4 coverage, carried over
 )

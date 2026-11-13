@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="fi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Beanstalk Yield Suite</title>
+<style>
+:root{--bg:#f4f6f8;--card:#fff;--text:#1f2933;--muted:#5f6b76;--line:#d5dce2;--accent:#2b8a3e;--accent2:#1c7ed6;--low:#c92a2a;--med:#e67700;--high:#2b8a3e}
+@media (prefers-color-scheme:dark){:root{--bg:#12171c;--card:#1b222a;--text:#e6edf3;--muted:#9aa7b3;--line:#35404b;--accent:#51cf66;--accent2:#74c0fc;--low:#ff8787;--med:#ffa94d;--high:#69db7c}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:15px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}
+header{display:flex;align-items:center;gap:12px;padding:10px 16px;background:var(--card);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:5}
+header h1{font-size:17px;margin:0;flex:1}
+#wrap{display:grid;grid-template-columns:260px 1fr;gap:16px;padding:16px;max-width:1400px;margin:0 auto}
+nav .f{display:block;width:100%;text-align:left;background:var(--card);border:1px solid var(--line);border-radius:8px;padding:9px 11px;margin-bottom:8px;cursor:pointer;color:inherit;font:inherit}
+nav .f.on{border-color:var(--accent);box-shadow:0 0 0 2px color-mix(in srgb,var(--accent) 25%,transparent)}
+nav .f b{display:block}.dots{display:flex;gap:4px;margin-top:5px;align-items:center}
+.dot{width:11px;height:11px;border-radius:50%;background:var(--muted)}.dot.low{background:var(--low)}.dot.medium{background:var(--med)}.dot.high{background:var(--high)}
+.muted{color:var(--muted);font-size:13px}
+.tabs{display:flex;gap:4px;flex-wrap:wrap;margin-bottom:12px}
+.tabs button{background:transparent;border:1px solid var(--line);border-radius:18px;padding:5px 14px;cursor:pointer;color:inherit;font:inherit}
+.tabs button.on{background:var(--accent);border-color:var(--accent);color:#fff}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 16px;margin-bottom:14px}
+.card h2{font-size:16px;margin:0 0 8px}.card h3{font-size:14px;margin:12px 0 4px}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px}
+.kpi{background:var(--bg);border-radius:8px;padding:8px 10px}.kpi span{display:block;color:var(--muted);font-size:12px}.kpi b{font-size:19px}
+table{border-collapse:collapse;width:100%;font-size:14px}th,td{border-bottom:1px solid var(--line);padding:6px 8px;text-align:left;vertical-align:top}th{color:var(--muted);font-weight:600;font-size:12px}
+.tag{display:inline-block;border-radius:10px;padding:0 9px;font-size:12px;color:#fff;white-space:nowrap}.tag.low{background:var(--low)}.tag.medium{background:var(--med)}.tag.high{background:var(--high)}
+.q{border:1px solid var(--line);border-left:4px solid var(--med);border-radius:8px;padding:10px 12px;margin:8px 0}.q.low{border-left-color:var(--low)}
+.q p{margin:0 0 6px}form[data-act]{display:flex;flex-wrap:wrap;gap:8px;align-items:end;margin-top:6px}form[data-act] .muted{align-self:center}
+label.fl{display:flex;flex-direction:column;font-size:12px;color:var(--muted);gap:2px}
+input,select{font:inherit;padding:5px 7px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:inherit;min-width:0}
+input[type=number]{width:110px}
+button.b{font:inherit;background:var(--accent);color:#fff;border:0;border-radius:6px;padding:6px 14px;cursor:pointer}
+button.b.sec{background:transparent;color:var(--text);border:1px solid var(--line)}button.b:disabled{opacity:.5;cursor:default}
+code{background:var(--bg);padding:1px 5px;border-radius:4px;font-size:12.5px;word-break:break-all}
+.gal{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:12px}.gal figure{margin:0}.gal img{width:100%;border-radius:6px;border:1px solid var(--line);background:#fff;cursor:zoom-in}.gal figcaption{font-size:13px;color:var(--muted)}
+.links{display:flex;flex-wrap:wrap;gap:8px}.links a{display:inline-block;border:1px solid var(--line);border-radius:8px;padding:7px 12px;text-decoration:none;color:var(--accent2);background:var(--bg)}
+pre{background:#0f1418;color:#d7e0e8;padding:10px;border-radius:8px;max-height:340px;overflow:auto;font-size:12.5px;white-space:pre-wrap}
+#msg{position:fixed;right:16px;bottom:16px;background:var(--text);color:var(--bg);padding:9px 14px;border-radius:8px;display:none;max-width:420px;z-index:9}
+#msg.err{background:var(--low);color:#fff}
+iframe{width:100%;height:72vh;border:1px solid var(--line);border-radius:8px;background:#dfe7ee}
+#big{position:fixed;inset:0;background:rgba(0,0,0,.85);display:none;align-items:center;justify-content:center;z-index:20;cursor:zoom-out}#big img{max-width:96vw;max-height:96vh}
+@media (max-width:820px){#wrap{grid-template-columns:1fr}nav{display:flex;gap:8px;overflow:auto}nav .f{min-width:200px;margin:0}}
+</style>
+</head>
+<body>
+<header><h1>Beanstalk Yield Suite</h1><span id="ver" class="muted"></span>
+<select id="lang"><option value="fi">Suomi</option><option value="en">English</option></select></header>
+<div id="wrap"><nav id="nav"></nav><main id="main"><div class="card muted">…</div></main></div>
+<div id="msg"></div><div id="big"><img alt=""></div>
+<script>
+const TOKEN = "__TOKEN__";
+const L = {
+ fi:{sum:"Yhteenveto",maps:"Kartat",data:"Lähtötiedot",run:"Ajo",dev:"Kehittäjälle",trust:"Mihin voi luottaa",res:"Tulos",cert:"Varmuus",why:"Miksi",
+  ask:"Näillä tiedoilla tulos paranee",noq:"Ei avoimia kysymyksiä.",save:"Tallenna",yield:"Keskisato",mass:"Kokonaissato",moist:"Kosteus",prot:"Proteiini",filled:"Täytetty ala",cls:"Tuoteluokka",
+  low:"heikko",medium:"kohtalainen",high:"hyvä",known:"tiedossa",estimated:"arvioitu",assumed:"oletettu",missing:"puuttuu",
+  mass_kg:"Massa (kg)",mc:"Kosteus (%)",machine:"Kone",ref:"Kuitin nro",fwd:"Eteen (m)",right:"Oikealle (m)",reason:"Peruste",sow:"Kylvöpäivä",model:"Malli",
+  rerun:"Aja ketju uudelleen",visuals:"Tee myös 3D-näkymä ja videot (hitaampi)",running:"Ajo käynnissä",done:"Valmis",failed:"Epäonnistui",norun:"Lohkoa ei ole vielä ajettu.",
+  open:"Avaa",report:"Raportti",v3d:"3D-näkymä",tl:"Puinnin aikasarja (video)",g3d:"Täyttö vaiheittain (3D)",gv:"Täyttö vaiheittain (video)",
+  all:"Kaikki lähtötiedot ja oletukset",item:"Asia",status:"Tila",how:"Miten paikattu",effect:"Vaikutus",tickets:"Vaakakuitit",machines:"Koneet",none:"ei yhtään",changes:"Muutosloki",
+  cv:"Ristiinvalidoitu virhe (t/ha)",used:"käytössä",files:"Koneluettavat tiedostot",api:"Rajapinta",saved:"Tallennettu. Aja ketju uudelleen, jotta muutos näkyy tuloksissa.",
+  after:"Muutokset vaikuttavat vasta uuden ajon jälkeen.",notes:"Ajon huomiot",embed:"Näytä 3D-näkymä tässä",q:"kysymystä",questions:"Avoimet kysymykset"},
+ en:{sum:"Summary",maps:"Maps",data:"Inputs",run:"Run",dev:"For developers",trust:"What to trust",res:"Result",cert:"Certainty",why:"Why",
+  ask:"What would improve the result",noq:"No open questions.",save:"Save",yield:"Mean yield",mass:"Total yield",moist:"Moisture",prot:"Protein",filled:"Filled area",cls:"Product class",
+  low:"low",medium:"medium",high:"high",known:"known",estimated:"estimated",assumed:"assumed",missing:"missing",
+  mass_kg:"Mass (kg)",mc:"Moisture (%)",machine:"Machine",ref:"Ticket no.",fwd:"Forward (m)",right:"Right (m)",reason:"Reason",sow:"Sowing date",model:"Model",
+  rerun:"Run the chain again",visuals:"Also make the 3D viewer and videos (slower)",running:"Run in progress",done:"Done",failed:"Failed",norun:"This field has not been run yet.",
+  open:"Open",report:"Report",v3d:"3D viewer",tl:"Harvest timelapse (video)",g3d:"Gap fill step by step (3D)",gv:"Gap fill step by step (video)",
+  all:"All inputs and assumptions",item:"Item",status:"Status",how:"How filled",effect:"Effect",tickets:"Scale tickets",machines:"Machines",none:"none",changes:"Change log",
+  cv:"Cross-validated error (t/ha)",used:"in use",files:"Machine-readable files",api:"API",saved:"Saved. Run the chain again to see the change in the results.",
+  after:"Changes take effect after a new run.",notes:"Run notes",embed:"Show the 3D viewer here",q:"questions",questions:"Open questions"}
+};
+let lang = localStorage.getItem("ys_lang") || "fi", cur = null, tab = "sum", F = null, timer = null;
+const $ = id => document.getElementById(id), t = k => L[lang][k] || k;
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const num = (v, d=1, u="") => v == null ? "–" : Number(v).toFixed(d).replace(".", lang === "fi" ? "," : ".") + u;
+function say(m, err){ const e = $("msg"); e.textContent = m; e.className = err ? "err" : ""; e.style.display = "block"; clearTimeout(say.t); say.t = setTimeout(() => e.style.display = "none", 5000); }
+async function get(u){ const r = await fetch(u); const j = await r.json(); if (!r.ok) throw new Error(j.error || r.status); return j; }
+async function post(action, body){
+  const r = await fetch(`/api/field/${encodeURIComponent(cur)}/${action}`, {method:"POST", headers:{"Content-Type":"application/json","X-Token":TOKEN}, body:JSON.stringify(body)});
+  const j = await r.json(); if (!r.ok) throw new Error(j.error || r.status); return j;
+}
+async function nav(){
+  const d = await get("/api/fields"), n = $("nav"); n.innerHTML = "";
+  for (const f of d.fields){
+    const b = document.createElement("button"); b.className = "f" + (f.key === cur ? " on" : "");
+    const dots = f.products ? Object.entries(f.products).map(([k,v]) => `<span class="dot ${v}" title="${esc(k)}: ${t(v)}"></span>`).join("") : "";
+    b.innerHTML = `<b>${esc(f.field_id || f.key)}</b><span class="muted">${esc(f.year || "")} · ${esc(f.key)}</span><div class="dots">${dots}<span class="muted">${f.questions != null ? f.questions + " " + t("q") : (f.error ? esc(f.error) : t("norun"))}${f.job && f.job.state === "running" ? " · ⏳" : ""}</span></div>`;
+    b.onclick = () => { cur = f.key; location.hash = f.key; nav(); load(); }; n.appendChild(b);
+  }
+  if (!cur && d.fields.length){ cur = decodeURIComponent(location.hash.slice(1)) || d.fields[0].key; if (!d.fields.some(f => f.key === cur)) cur = d.fields[0].key; nav(); load(); }
+}
+async function load(){
+  try { F = await get(`/api/field/${encodeURIComponent(cur)}`); } catch (e){ $("main").innerHTML = `<div class="card">${esc(e.message)}</div>`; return; }
+  render(); clearTimeout(timer);
+  if (F.job && F.job.state === "running") timer = setTimeout(async () => { await load(); }, 2500);
+}
+function tabs(){ return `<div class="tabs">${["sum","maps","data","run","dev"].map(k => `<button class="${k === tab ? "on" : ""}" data-tab="${k}">${t(k)}${k === "run" && F.job && F.job.state === "running" ? " ⏳" : ""}</button>`).join("")}</div>`; }
+function qForm(q){
+  const id = q.id;
+  if (id === "scale_tickets") return `<form data-act="ticket"><label class="fl">${t("mass_kg")}<input name="mass_kg" type="number" step="any" min="1" required></label><label class="fl">${t("mc")}<input name="moisture_pct" type="number" step="any" min="0" max="60"></label><label class="fl">${t("machine")}<select name="machine_id">${F.machines.map(m => `<option>${esc(m.machine_id)}</option>`).join("")}</select></label><label class="fl">${t("ref")}<input name="ticket_ref" size="8"></label><button class="b">${t("save")}</button></form>`;
+  if (id.startsWith("antenna:")){ const m = F.machines.find(m => m.machine_id === id.slice(8)) || {antenna_offset_m:[0,0]};
+    return `<form data-act="machine"><input type="hidden" name="machine_id" value="${esc(id.slice(8))}"><label class="fl">${t("fwd")}<input name="antenna_forward_m" type="number" step="any" value="${m.antenna_offset_m[0]}"></label><label class="fl">${t("right")}<input name="antenna_right_m" type="number" step="any" value="${m.antenna_offset_m[1]}"></label><label class="fl">${t("reason")}<input name="reason" required placeholder="${lang === "fi" ? "mitattu mittanauhalla" : "measured with a tape"}"></label><button class="b">${t("save")}</button></form>`; }
+  if (id === "sowing_date") return `<form data-act="setting" data-key="crop.sowing_date"><label class="fl">${t("sow")}<input name="value" type="date" value="${esc(F.crop.sowing_date || "")}" required></label><button class="b">${t("save")}</button></form>`;
+  if (id === "prediction_model") return modelForm();
+  return q.command ? `<code>${esc(q.command)}</code>` : "";
+}
+function modelForm(){
+  const c = F.model.candidates || {}, opts = ["auto","ipar","gpp","rue","image"];
+  const tbl = Object.keys(c).length ? `<span class="muted">${t("cv")}: ${Object.entries(c).filter(([,v]) => v != null).map(([k,v]) => `${k} ${num(v,2)}${k === F.model.used ? " ("+t("used")+")" : ""}`).join(" · ")}</span>` : "";
+  return `<form data-act="setting" data-key="light_use.fill"><label class="fl">${t("model")}<select name="value">${opts.map(o => `<option ${o === F.model.setting ? "selected" : ""}>${o}</option>`).join("")}</select></label><button class="b">${t("save")}</button>${tbl}</form>`;
+}
+function render(){
+  const k = F.kpi, c = F.certainty; let h = tabs();
+  if (!F.has_outputs && tab !== "run" && tab !== "data") h += `<div class="card">${t("norun")}</div>`;
+  else if (tab === "sum"){
+    h += `<div class="card"><h2>${esc(F.field_id)} · ${F.year}</h2><div class="kpis">
+      <div class="kpi"><span>${t("yield")}</span><b>${num(k.yield_t_ha,2," t/ha")}</b></div><div class="kpi"><span>${t("mass")}</span><b>${num(k.mass_t,1," t")}</b></div>
+      <div class="kpi"><span>${t("moist")}</span><b>${num(k.moisture_pct,1," %")}</b></div><div class="kpi"><span>${t("prot")}</span><b>${num(k.protein_pct,1," %")}</b></div>
+      <div class="kpi"><span>${t("filled")}</span><b>${k.filled_share == null ? "–" : num(100*k.filled_share,0," %")}</b></div><div class="kpi"><span>${t("cls")}</span><b style="font-size:14px">${esc(k.product_class || "–")}</b></div></div></div>`;
+    const by = Object.fromEntries(c.items.map(i => [i.id, i]));
+    h += `<div class="card"><h2>${t("trust")}</h2><table><tr><th>${t("res")}</th><th>${t("cert")}</th><th>${t("why")}</th></tr>${Object.values(c.products).map(p => `<tr><td>${esc(p.name[lang])}</td><td><span class="tag ${p.certainty}">${t(p.certainty)}</span></td><td>${p.because.slice(0,2).map(b => esc((by[b] || {effect:{}}).effect[lang] || (by[b] || {how_filled:{}}).how_filled[lang] || "")).join(" ") || "–"}</td></tr>`).join("")}</table></div>`;
+    h += `<div class="card"><h2>${t("ask")}</h2>${c.questions.length ? c.questions.map(q => `<div class="q ${q.certainty}"><p>${esc(q.ask[lang])}</p>${qForm(q)}</div>`).join("") + `<p class="muted">${t("after")}</p>` : t("noq")}</div>`;
+    if (F.notes.length) h += `<div class="card"><h2>${t("notes")}</h2><ul>${F.notes.map(n => `<li>${esc(n)}</li>`).join("")}</ul></div>`;
+  } else if (tab === "maps"){
+    const f = F.files, link = (key, label) => f[key] ? `<a target="_blank" href="/files/${encodeURIComponent(cur)}/${f[key]}">${label} ↗</a>` : "";
+    h += `<div class="card"><h2>${t("open")}</h2><div class="links">${link("report",t("report"))}${link("viewer3d",t("v3d"))}${link("timelapse",t("tl"))}${link("gapfill3d",t("g3d"))}${link("gapfill",t("gv"))}</div>${f.viewer3d ? `<p><button class="b sec" id="emb">${t("embed")}</button></p><div id="embbox"></div>` : ""}</div>`;
+    h += `<div class="card"><div class="gal">${F.figures.map(g => `<figure><img loading="lazy" src="/files/${encodeURIComponent(cur)}/${g.path}" alt="${esc(g.name)}"><figcaption>${esc(g.name)}</figcaption></figure>`).join("") || t("norun")}</div></div>`;
+  } else if (tab === "data"){
+    h += `<div class="card"><h2>${t("machines")}</h2><table><tr><th>${t("machine")}</th><th>${t("fwd")}</th><th>${t("right")}</th><th></th></tr>${F.machines.map(m => `<tr><td>${esc(m.machine_id)}</td><td colspan="3">${qForm({id:"antenna:"+m.machine_id})}</td></tr>`).join("")}</table></div>`;
+    h += `<div class="card"><h2>${t("tickets")}</h2>${F.tickets.length ? `<table><tr><th>${t("ref")}</th><th>${t("machine")}</th><th>${t("mass_kg")}</th><th>${t("mc")}</th></tr>${F.tickets.map(x => `<tr><td>${esc(x.ticket_ref ?? "")}</td><td>${esc(x.machine_id ?? "")}</td><td>${num(x.mass_kg,0)}</td><td>${x.moisture_pct == null ? "–" : num(x.moisture_pct,1)}</td></tr>`).join("")}</table>` : `<p class="muted">${t("none")}</p>`}${qForm({id:"scale_tickets"})}</div>`;
+    h += `<div class="card"><h2>${t("model")} · ${t("sow")}</h2>${modelForm()}<p class="muted">${esc(F.model.reason || "")}</p>${qForm({id:"sowing_date"})}${F.crop.assumed ? `<p class="muted">${t("assumed")}</p>` : ""}</div>`;
+    if (c) h += `<div class="card"><h2>${t("all")}</h2><table><tr><th>${t("item")}</th><th>${t("status")}</th><th>${t("cert")}</th><th>${t("how")}</th><th>${t("effect")}</th></tr>${c.items.map(i => `<tr><td>${esc(i.topic[lang])}</td><td>${t(i.status)}</td><td><span class="tag ${i.certainty}">${t(i.certainty)}</span></td><td>${esc(i.how_filled[lang])}</td><td>${esc(i.effect[lang])}</td></tr>`).join("")}</table></div>`;
+    if (F.log.length) h += `<div class="card"><h2>${t("changes")}</h2><table>${F.log.slice().reverse().map(e => `<tr><td class="muted">${esc(e.time)}</td><td>${esc(e.action)}</td><td>${esc(e.actor)}</td><td><code>${esc(JSON.stringify(e.new ?? e.tickets ?? e.removed ?? ""))}</code></td><td>${esc(e.reason || "")}</td></tr>`).join("")}</table></div>`;
+  } else if (tab === "run"){
+    const j = F.job, running = j && j.state === "running";
+    h += `<div class="card"><h2>${t("run")}</h2><p><label><input type="checkbox" id="vis"> ${t("visuals")}</label></p><button class="b" id="go" ${running ? "disabled" : ""}>${t("rerun")}</button>
+      ${j ? `<p><b>${running ? t("running") + " · " + esc(j.step) : j.state === "done" ? t("done") : t("failed")}</b> <span class="muted">${esc(j.started)}</span></p><pre id="log">${esc(j.log.join("\n"))}</pre>` : ""}</div>`;
+  } else if (tab === "dev"){
+    h += `<div class="card"><h2>${t("files")}</h2><table>${Object.entries(F.files).map(([n,p]) => `<tr><td>${esc(n)}</td><td><a href="/files/${encodeURIComponent(cur)}/${p}" target="_blank"><code>${esc(p)}</code></a></td></tr>`).join("")}</table></div>`;
+    h += `<div class="card"><h2>${t("api")}</h2><p><code>GET /api/fields</code><br><code>GET /api/field/${esc(cur)}</code><br><code>GET /files/${esc(cur)}/&lt;path&gt;</code><br><code>POST /api/field/${esc(cur)}/{ticket|machine|setting|run}</code> (X-Token)</p><p class="muted">yieldsuite ${esc(k.code_version || "")} · ${esc(k.finished || "")}</p></div>`;
+  }
+  $("main").innerHTML = h;
+  document.querySelectorAll(".tabs button").forEach(b => b.onclick = () => { tab = b.dataset.tab; render(); });
+  document.querySelectorAll("form[data-act]").forEach(f => f.onsubmit = async ev => {
+    ev.preventDefault(); const body = Object.fromEntries(new FormData(f)); if (f.dataset.key) body.key = f.dataset.key;
+    try { await post(f.dataset.act, body); say(t("saved")); await load(); nav(); } catch (e){ say(e.message, true); }
+  });
+  const go = $("go"); if (go) go.onclick = async () => { try { await post("run", {to:"L5", visuals:$("vis").checked}); await load(); nav(); } catch (e){ say(e.message, true); } };
+  const lg = $("log"); if (lg) lg.scrollTop = lg.scrollHeight;
+  const emb = $("emb"); if (emb) emb.onclick = () => { $("embbox").innerHTML = `<iframe src="/files/${encodeURIComponent(cur)}/${F.files.viewer3d}"></iframe>`; emb.remove(); };
+  document.querySelectorAll(".gal img").forEach(i => i.onclick = () => { $("big").querySelector("img").src = i.src; $("big").style.display = "flex"; });
+  if (F.job && F.job.state !== "running" && render.was === "running"){ nav(); }
+  render.was = F.job ? F.job.state : null;
+}
+$("big").onclick = () => $("big").style.display = "none";
+$("lang").value = lang; $("lang").onchange = e => { lang = e.target.value; localStorage.setItem("ys_lang", lang); document.documentElement.lang = lang; nav(); if (F) render(); };
+nav();
+</script>
+</body>
+</html>
