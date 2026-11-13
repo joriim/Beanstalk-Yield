@@ -15,7 +15,8 @@ import warnings
 import numpy as np
 
 SOURCE_MEASURED = 1
-SOURCE_FILLED = 2
+SOURCE_FILLED = 2  # predicted by the model (+ kriged residuals)
+SOURCE_INTERPOLATED = 3  # narrow gap: kriged from the measured cells around it
 SOURCE_NONE = 0
 
 
@@ -116,3 +117,46 @@ def gap_fill(
         "residual": resid_field,
         "variogram": variogram,
     }
+
+
+def narrow_gaps(measured: np.ndarray, field: np.ndarray, resolution: float, width_m: float):
+    """Field cells without a measured value that lie in gaps at most ``width_m`` wide
+    (edge strips, a missed pass, single holes). 2-D boolean masks in, 2-D mask out.
+
+    A gap is narrow where a disk of radius width/2 does not fit into it: morphological
+    opening of the gap mask removes exactly those parts. Land outside the field does not
+    count as gap, so an unlogged strip along the boundary is narrow too.
+    """
+    from scipy import ndimage
+
+    gap = np.asarray(field, bool) & ~np.asarray(measured, bool)
+    k = int(np.ceil(width_m / (2.0 * resolution)))
+    if k < 1 or not gap.any():
+        return np.zeros_like(gap)
+    yy, xx = np.ogrid[-k : k + 1, -k : k + 1]
+    disk = (xx * xx + yy * yy) <= k * k
+    wide = ndimage.binary_opening(gap, structure=disk)
+    return gap & ~wide
+
+
+def interpolate_narrow(y, measured, narrow, xy, resolution: float, seed: int = 0) -> dict:
+    """Kriging of the measured cell values into the narrow-gap cells (flat arrays).
+
+    The data are cell (block) means on the grid and the targets are cells of the same
+    size, so this is block-to-block kriging; the field mean of the measured cells is the
+    trend. Returns ``yield`` and ``sigma`` (kriging standard deviation) for the narrow cells.
+    """
+    y = np.asarray(y, float)
+    measured = np.asarray(measured, bool) & np.isfinite(y)
+    narrow = np.asarray(narrow, bool)
+    out = {"yield": np.full(y.shape, np.nan), "sigma": np.full(y.shape, np.nan), "n": 0}
+    if not narrow.any() or measured.sum() < 10:
+        return out
+    mean = float(y[measured].mean())
+    sd = float(y[measured].std())
+    pred = np.where(measured | narrow, mean, np.nan)
+    res = gap_fill(y, pred, measured, xy, sd, resolution, residual="kriging", seed=seed)
+    out["yield"][narrow] = res["yield"][narrow]
+    out["sigma"][narrow] = res["sigma"][narrow]
+    out["n"] = int(np.isfinite(out["yield"]).sum())
+    return out

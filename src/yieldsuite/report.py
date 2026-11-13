@@ -717,10 +717,11 @@ def figure_raster(path_tif, bands, titles, boundary, path, suptitle):
 
             a = np.ma.masked_where(a.filled(0) < 1, a)
             im = ax.imshow(
-                a, extent=ext, cmap=ListedColormap(["#9db8d2", "#e08a3c"]), vmin=0.5, vmax=2.5
+                a, extent=ext, cmap=ListedColormap(["#9db8d2", "#e08a3c", "#7b5ea7"]),
+                vmin=0.5, vmax=3.5,
             )
-            cb = fig.colorbar(im, ax=ax, shrink=0.8, ticks=[1, 2])
-            cb.ax.set_yticklabels(["1", "2"])
+            cb = fig.colorbar(im, ax=ax, shrink=0.8, ticks=[1, 2, 3])
+            cb.ax.set_yticklabels(["1", "2", "3"])
         else:
             vals = a.compressed()
             lo, hi = np.percentile(vals, [2, 98]) if vals.size else (0, 1)
@@ -1076,7 +1077,8 @@ def build_report(
             ["yield", "source", "sigma", "relative_yield"],
             {
                 "yield": "sato (t/ha)" if fi else "yield (t/ha)",
-                "source": "1 = mitattu, 2 = täytetty" if fi else "1 = measured, 2 = filled",
+                "source": "1 = mitattu, 2 = malli, 3 = naapureista (kapea aukko)" if fi
+                else "1 = measured, 2 = model, 3 = from neighbours (narrow gap)",
                 "sigma": "epävarmuus täytetyissä (t/ha)" if fi else "uncertainty, filled (t/ha)",
                 "relative_yield": "suhteellinen sato (%)" if fi else "relative yield (%)",
             },

@@ -50,7 +50,9 @@ from ..weather.rue import _daily_fapar, fapar_from_ndvi
 @dataclass
 class LightUseSettings:
     enabled: bool = True  # needs crop.sowing_date; without it the image model is used
-    fill: str = "auto"  # auto (best of ipar, gpp, rue) | ipar | gpp | rue | image
+    # image (default: the statistical image model) | auto (best of ipar, gpp, rue in block
+    # CV) | ipar | gpp | rue. The light-use maps and the comparison are made in every case.
+    fill: str = "image"
     prefer: str = "gpp"  # used by auto when there is no clear winner
     rue_sigma_m: float = 30.0  # smoothing distance of the local RUE
     eps_g_c_mj: float = 1.8  # light-use efficiency for GPP (C3 crops ~1.5-2.5)
@@ -224,7 +226,9 @@ def compare_models(y, ipar, gpp, train, rows, cols, xy, s: LightUseSettings) -> 
 
 def choose_fill(image_cv_rmse, candidates: dict, s: LightUseSettings) -> tuple[str, str, bool]:
     """Pick the predictor; returns (name, reason, clear_winner)."""
-    if s.fill in (*LIGHT_MODELS, "image"):
+    if s.fill == "image":
+        return "image", "image model (light_use.fill: image, the default)", True
+    if s.fill in LIGHT_MODELS:
         return s.fill, "chosen by the user (light_use.fill)", True
     ranked = sorted(
         ((c["cv_rmse"], n) for n, c in candidates.items()

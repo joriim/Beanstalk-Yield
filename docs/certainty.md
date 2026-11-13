@@ -28,7 +28,7 @@ they depend on.
 | Protein level | the analyzer's own values | lab result (`quality.lab_samples`) |
 | Area without records | satellite check (harvested or not), yield from the model | why the log is missing |
 | Sowing date | the configured date (`crop.sowing_date_assumed: true` marks a guess) | the date |
-| Prediction and gap fill | best of IPAR, GPP, RUE in block CV | the model, when none is clearly best or none beats the field mean |
+| Prediction and gap fill | narrow gaps from measured neighbours; wide gaps by the image model (or IPAR, GPP, RUE) | the model, when it does not beat the field mean |
 | Failed steps | listed with their consequence | – |
 
 Products graded: yield level, yield pattern on the measured area, filled area, moisture,

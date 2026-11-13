@@ -294,6 +294,7 @@ def assess(config, out_dir=None) -> dict:
     if card:
         cells = card.get("cells") or {}
         fshare = cells.get("filled_share") or 0.0
+        ishare = cells.get("interpolated_share") or 0.0
         cand = lu.get("fill_candidates") or {}
         used = card.get("prediction_model", lu.get("fill_used", "image"))
         cv = (cand.get(used) or {}).get("cv_rmse")
@@ -307,9 +308,11 @@ def assess(config, out_dir=None) -> dict:
         items.append(_item(
             "prediction_model", "Satoennuste ja täyttö", "Yield prediction and gap fill",
             "estimated", cert,
-            f"Malli: {used}. {100 * fshare:.0f} % lohkon ruuduista on täytetty. Ristiinvalidoitu "
+            f"Malli: {used}. {100 * fshare:.0f} % lohkon ruuduista on täytetty mallilla ja "
+            f"{100 * ishare:.0f} % kapeina aukkoina mitatuista naapureista. Ristiinvalidoitu "
             f"virhe (t/ha): {table}.",
-            f"Model: {used}. {100 * fshare:.0f} % of the field's cells are filled. Cross-validated "
+            f"Model: {used}. {100 * fshare:.0f} % of the field's cells are filled by the model and "
+            f"{100 * ishare:.0f} % as narrow gaps from measured neighbours. Cross-validated "
             f"error (t/ha): {table}.",
             ("Malli ei ennusta lohkon sisäistä vaihtelua keskiarvoa paremmin: täytetyt arvot ovat "
              "käytännössä lähialueen keskiarvoja." if no_skill else

@@ -162,7 +162,12 @@ def test_fuse_end_to_end():
     req = S2Request(start="2026-05-01", end="2026-08-16", indices=("NDVI", "NDRE"))
     res = fuse(l4, GRID, long_df, request=req)
     card = res.model_card
-    assert card["cells"]["filled"] == hidden.sum()
+    # wide gaps are filled by the model, their narrow corners from measured neighbours
+    assert card["cells"]["filled"] + card["cells"]["interpolated"] == hidden.sum()
+    assert card["cells"]["filled"] > card["cells"]["interpolated"] > 0
+    assert fuse(l4, GRID, long_df, request=req, narrow_gap_m=0).model_card["cells"][
+        "filled"
+    ] == hidden.sum()
     assert card["sentinel2"]["dates_dropped"] == ["2026-07-11"]
     assert card["fit"]["cv_rmse"] > 0
     assert res.bands["yield"].shape == (GRID.ny, GRID.nx)
@@ -198,7 +203,7 @@ def test_cli_fuse_offline(tmp_path, example_config_path):
     assert rc == 0
     bands, grid, crs = read_bands(tmp_path / "out" / "L5_demo-field-01_2026.tif")
     assert set(L5_BANDS) <= set(bands) and grid == GRID and "3067" in crs
-    assert (bands["source"].ravel()[hidden] == SOURCE_FILLED).all()
+    assert (bands["source"].ravel()[hidden] >= SOURCE_FILLED).all()
     card = json.loads((tmp_path / "out" / "L5_demo-field-01_2026_model_card.json").read_text())
     assert card["field_id"] == "demo-field-01" and card["product_class"] == "absolute"
 
@@ -225,7 +230,7 @@ def test_gap_fill_stays_inside_the_field():
     src = res.bands["source"].ravel()
     assert np.isnan(res.bands["yield"].ravel()[outside]).all()
     assert (src[outside] == 0).all()
-    assert (src[hidden & ~outside] == SOURCE_FILLED).all()
+    assert (src[hidden & ~outside] >= SOURCE_FILLED).all()
     assert res.model_card["field_mask"] == {"from": "boundary", "cells": 750}
 
     hull = fuse(l4, GRID, long_df)  # no boundary: hull of the measured cells
@@ -265,3 +270,39 @@ def test_final_image_and_per_source_validity_and_vendor_harmonisation():
     odd = np.arange(1, truth.size, 2)  # not seen by PlanetScope: latest Sentinel-2 value
     s2_last = s2[(s2["index"] == "NDVI") & (s2["date"] == "2026-07-26")].set_index("cell")["value"]
     assert np.allclose(last[odd], s2_last.reindex(odd).to_numpy())
+
+
+# --- narrow gaps: kriging from measured neighbours ---------------------------------
+
+
+def test_narrow_gaps_are_strips_and_holes_not_wide_areas():
+    from yieldsuite.l5.gapfill import narrow_gaps
+
+    field = np.zeros((30, 30), bool)
+    field[2:28, 2:28] = True
+    measured = field.copy()
+    measured[2:28, 2:4] = False  # 20 m unlogged strip along the west boundary
+    measured[10, 10] = False  # single hole
+    measured[15:27, 15:27] = False  # wide unlogged block (120 m)
+    n = narrow_gaps(measured, field, 10.0, 20.0)
+    assert n[2:28, 2:4].all() and n[10, 10]
+    assert not n[18:24, 18:24].any()  # the inside of the wide block is left to the model
+    assert not n[~field].any() and not n[measured].any()
+    assert not narrow_gaps(measured, field, 10.0, 0.0).any()
+
+
+def test_narrow_gap_values_come_from_the_neighbours():
+    from yieldsuite.l5.gapfill import interpolate_narrow
+
+    ny = nx = 30
+    rows, cols = np.divmod(np.arange(ny * nx), nx)
+    xy = np.c_[cols * 10.0 + 5, rows * 10.0 + 5]
+    y = 5.0 + 0.1 * cols + np.random.default_rng(0).normal(0, 0.05, ny * nx)  # west-east trend
+    measured = np.ones(ny * nx, bool)
+    narrow = (cols == 15) | (cols == 16)  # a missed pass
+    measured[narrow] = False
+    res = interpolate_narrow(np.where(measured, y, np.nan), measured, narrow, xy, 10.0)
+    assert res["n"] == narrow.sum()
+    err = res["yield"][narrow] - y[narrow]
+    assert np.sqrt(np.mean(err**2)) < 0.15  # far better than the field mean (error ~0.9)
+    assert np.isfinite(res["sigma"][narrow]).all() and np.isnan(res["yield"][~narrow]).all()

@@ -15,7 +15,7 @@ from yieldsuite.l5.lightuse import (
     temperature_scalar,
 )
 
-S = LightUseSettings(enabled=True)
+S = LightUseSettings(enabled=True, fill="auto")
 
 
 def test_temperature_scalar_trapezoid():
@@ -55,7 +55,8 @@ def test_light_models_compared_and_chosen():
     assert c["ipar"]["cv_rmse"] < 0.5 * c["mean"]["cv_rmse"]
     name, why, clear = choose_fill(None, c, S)
     assert name == "gpp" and not clear and "no clear winner" in why  # preferred among equals
-    assert choose_fill(None, c, LightUseSettings(prefer="ipar"))[0] == "ipar"
+    assert choose_fill(None, c, LightUseSettings(fill="auto", prefer="ipar"))[0] == "ipar"
+    assert choose_fill(None, c, LightUseSettings())[0] == "image"  # the default
     # (b) RUE differs between the two halves of the field: the local RUE wins clearly
     rue = np.where(cols < 10, 0.008, 0.014)
     y2 = rue * ipar + rng.normal(0, 0.2, 400)

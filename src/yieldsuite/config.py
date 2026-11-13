@@ -182,6 +182,7 @@ class FieldYearConfig:
     source_path: Path | None = None  # the YAML file this config was read from (audit)
     light_use: LightUseSettings = field(default_factory=lambda: _light_use_default())
     harvest_check: HarvestCheckSettings = field(default_factory=lambda: _harvest_check(None))
+    narrow_gap_m: float = 20.0  # gaps up to this wide are kriged from measured cells; 0 = off
     strict: bool = False  # a failed optional step (light use, review, ...) stops the run
 
     @property
@@ -291,6 +292,7 @@ def load_config(path: str | Path) -> FieldYearConfig:
         light_use=_light_use(raw.get("light_use")),
         harvest_check=_harvest_check((raw.get("review") or {}).get("harvest_check")),
         strict=bool(raw.get("strict", False)),
+        narrow_gap_m=float((raw.get("gap_fill") or {}).get("narrow_gap_m", 20.0)),
     )
 
 

@@ -136,6 +136,7 @@ def run_sentinel2_fusion(
         request=request,
         field_mask=field_mask,
         vendor_harmonised=vendor,
+        narrow_gap_m=config.narrow_gap_m,
     )
     if remapped:
         result.model_card["sentinel2_features_remapped"] = (

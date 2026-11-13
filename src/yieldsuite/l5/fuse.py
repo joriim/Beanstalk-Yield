@@ -11,7 +11,14 @@ import pandas as pd
 from .. import __version__
 from ..l4.grid import Grid
 from .features import complete_rows, feature_matrix
-from .gapfill import SOURCE_FILLED, SOURCE_MEASURED, gap_fill
+from .gapfill import (
+    SOURCE_FILLED,
+    SOURCE_INTERPOLATED,
+    SOURCE_MEASURED,
+    gap_fill,
+    interpolate_narrow,
+    narrow_gaps,
+)
 from .harmonize import ensure_source, harmonize
 from .model import fit_yield_image_model
 from .sentinel2 import S2Request
@@ -44,6 +51,7 @@ def fuse(
     request: S2Request | None = None,
     field_mask: np.ndarray | None = None,
     vendor_harmonised: set[str] | frozenset = frozenset(),
+    narrow_gap_m: float = 20.0,
 ) -> FusionResult:
     """Fit Y = f(V) on reliable L4 cells and fill the rest.
 
@@ -134,6 +142,21 @@ def fuse(
     filled["sigma"][outside] = np.nan
     filled["source"][outside] = 0
 
+    # Narrow gaps (edge strips, a missed pass, single holes) are better known from the
+    # measured cells next to them than from imagery: kriging replaces the model there,
+    # and also fills narrow cells that have no image features.
+    n_interp = 0
+    if narrow_gap_m and narrow_gap_m > 0:
+        shape2 = (grid.ny, grid.nx)
+        measured2 = (filled["source"] == SOURCE_MEASURED).reshape(shape2)
+        narrow = narrow_gaps(measured2, mask.reshape(shape2), grid.resolution, narrow_gap_m)
+        itp = interpolate_narrow(y, measured2.ravel(), narrow.ravel(), xy, grid.resolution)
+        got = np.isfinite(itp["yield"])
+        out_y[got] = itp["yield"][got]
+        filled["sigma"][got] = itp["sigma"][got]
+        filled["source"][got] = SOURCE_INTERPOLATED
+        n_interp = int(got.sum())
+
     with np.errstate(invalid="ignore"):
         mean_y = np.nanmean(out_y) if np.isfinite(out_y).any() else np.nan
         relative = 100.0 * out_y / mean_y
@@ -179,10 +202,22 @@ def fuse(
             "measured": int((filled["source"] == SOURCE_MEASURED).sum()),
             "filled": n_filled,
             "filled_share": n_filled / n_out if n_out else 0.0,
+            "interpolated": n_interp,
+            "interpolated_share": n_interp / n_out if n_out else 0.0,
+        },
+        "gap_fill": {
+            "narrow_gap_m": narrow_gap_m,
+            "narrow": "kriging of the measured cells (block support), field mean as trend",
+            "wide": "prediction model + kriging of its residuals",
         },
         "variogram": filled["variogram"],
         "field_mask": {"from": mask_from, "cells": int(mask.sum())},
-        "source_codes": {"0": "no value", "1": "measured (L4)", "2": "filled from imagery"},
+        "source_codes": {
+            "0": "no value",
+            "1": "measured (L4)",
+            "2": "filled by the prediction model",
+            "3": "narrow gap, kriged from measured cells",
+        },
     }
     return FusionResult(bands, card)
 

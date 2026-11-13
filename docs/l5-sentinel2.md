@@ -125,31 +125,44 @@ spans zones 34–36: western Finland (e.g. Seinäjoki, tile 34VEQ) is
 field: `yieldsuite s2-search` prints the EPSG code of the field's tiles. With EPSG:3067 each cell is averaged from the
 pixels it overlaps, which smooths slightly.
 
-## Prediction and gap fill: IPAR, GPP or RUE
+## Prediction and gap fill
 
-Yield is predicted, and the empty cells are filled, from light use, not from a statistical
-image model (`l5/lightuse.py`; needs `crop.sowing_date`):
+Two cases, as in the yield-mapping literature and in vendor software:
+
+- **Narrow gaps** (edge strips, a missed pass, single holes: at most `gap_fill.narrow_gap_m`
+  wide, default 20 m, `0` switches it off) are filled from the measured cells around them by
+  kriging (block support: the 10 m cell means; field mean as trend). Such cells are better
+  known from their neighbours than from imagery, and they are filled even where image
+  features are missing. Source code 3.
+- **Wide gaps** are filled by the prediction model plus kriging of its residuals. Source
+  code 2. The model is chosen with `light_use.fill`:
 
 | `light_use.fill` | Model |
 |---|---|
+| `image` (default) | statistical model on the image features of the same field (season statistics and the final image of Sentinel-2, PlanetScope if present), fitted on the measured cells |
 | `ipar` | Y = RUE × IPAR, one field RUE (median of Y / IPAR on the measured cells) |
 | `gpp` | Y = k × GPP: IPAR weighted by the daily temperature limit f(T) |
 | `rue` | Y = RUE(x) × IPAR, RUE varying over the field (distance-weighted, `rue_sigma_m` 30 m) |
-| `image` | the earlier statistical model on image features (kept as an option) |
-| `auto` (default) | the best of `ipar`, `gpp`, `rue` in spatial block cross-validation |
+| `auto` | the best of `ipar`, `gpp`, `rue` in spatial block cross-validation |
 
-Kriging of the residuals is added in every case. The model card (`light_use.fill_candidates`)
-holds the block-CV error of all three, of the field mean (no model) and of the image model.
-When the best two light-use models are within 2 % (`min_gain`) there is no clear winner:
-`prefer` (default `gpp`) is used, the run says so and the user can pick. When no model beats
-the field mean, the certainty summary says that the filled values are in practice local
-averages and asks which model to use.
+The image model is the default because it was the best on every field tested and because
+it is what the literature does (a model calibrated on the harvested part of the same field).
+On the four fields of 2026 the block-CV RMSE (t/ha) was:
 
-On the four fields of 2026 the three light-use models were not better than the field mean
-within the field (block-CV RMSE: ipar 1.16, gpp 1.15, rue 1.07, mean 1.05 t/ha on one of
-them), while the statistical image model was (0.76): NDVI saturates in a closed cereal canopy,
-so intercepted light varies little inside a field. Light use explains differences between
-fields and years better than within a field. `fill: image` remains available for that reason.
+| Field | ipar | gpp | rue | field mean | image |
+|---|---|---|---|---|---|
+| 1641431471 | 1.94 | 1.94 | 1.43 | 1.62 | 0.94 |
+| 1641175029 | 1.17 | 1.17 | 1.04 | 1.07 | 0.97 |
+| 1641426926 | 0.77 | 0.77 | 0.74 | 0.64 | 0.63 |
+| 1640608991 | 1.16 | 1.15 | 1.07 | 1.05 | 0.76 |
+
+NDVI saturates in a closed cereal canopy, so intercepted light varies little inside a field;
+a light-use-efficiency model did not explain within-field wheat yield in the literature either
+without assimilating leaf area. The light-use maps (IPAR, GPP, RUE) and this comparison are
+still produced in every run (`light_use.fill_candidates` in the model card), and the user can
+switch model. With `auto`, when the best two are within 2 % (`min_gain`) there is no clear
+winner and `prefer` (default `gpp`) is used. When the model in use does not beat the field
+mean, the certainty summary says that the filled values are in practice local averages.
 
 ## Was the unlogged area harvested?
 

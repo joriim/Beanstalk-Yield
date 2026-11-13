@@ -93,7 +93,8 @@ def load_story(config) -> Story:
     src = np.nan_to_num(bands["source"], nan=0).astype(int)
     final = np.where(mask & np.isfinite(bands["yield"]), bands["yield"], np.nan)
     measured = np.where(mask & (src == 1), final, np.nan)
-    gap = mask & (src == 2) & np.isfinite(final)
+    gap = mask & (src >= 2) & np.isfinite(final)
+    interp = mask & (src == 3)
     empty = mask & ~np.isfinite(final)
     pred = np.where(mask, bands["prediction"], np.nan)
     sigma = np.where(gap, bands["sigma"], np.nan)
@@ -170,6 +171,7 @@ def load_story(config) -> Story:
     facts = {
         "measured_ha": float(np.isfinite(measured).sum() * ha),
         "gap_ha": float(gap.sum() * ha),
+        "interp_ha": float(interp.sum() * ha),
         "empty_ha": float(empty.sum() * ha),
         "field_ha": float(n_field * ha),
         "cv_rmse": float(cv) if cv is not None else None,
@@ -278,7 +280,7 @@ def chapters(s: Story) -> list[dict]:
             "title": {"fi": "4 · Kriging-korjaus", "en": "4 · Kriging correction"},
             "text": {
                 "fi": "Mitatun sadon ja kuvamallin ero levitetään tyhjiin ruutuihin krigingillä mitatuilta alueilta sisäänpäin: "
-                f"ruutujen arvo siirtyy ennusteesta lopulliseen. Täytettyjen ruutujen epävarmuus {sgt} (mediaani).",
+                f"ruutujen arvo siirtyy ennusteesta lopulliseen. Kapeat aukot ({f.get('interp_ha', 0):.1f} ha) täytetään suoraan mitatuista naapureista. Täytettyjen ruutujen epävarmuus {sgt} (mediaani).",
                 "en": "The difference between measured yield and the image-model prediction is spread into the empty cells by "
                 "kriging, inwards from the measured areas: each cell moves from the prediction to the final value. "
                 f"Uncertainty of the filled cells {sgt} (median).",
